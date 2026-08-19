@@ -1,12 +1,33 @@
 import csv
 
 import matplotlib
-matplotlib.use('TkAgg')
+
+# La aplicación principal utiliza Qt/PySide6.
+matplotlib.use("QtAgg")
 
 import matplotlib.pyplot as plt
 
 
-def plot_experiment(filename):
+def plot_experiment(
+    filename,
+    block=False,
+):
+    """
+    Genera las gráficas finales de un experimento.
+
+    Mantiene el mismo formato CSV del programa
+    original y utiliza Time enviado por el ESP32
+    como eje temporal.
+
+    Parameters
+    ----------
+    filename : str
+        Ruta del CSV del experimento.
+
+    block : bool
+        Si True, plt.show() bloquea.
+        En la GUI normalmente usamos False.
+    """
 
     time_data = []
 
@@ -23,50 +44,84 @@ def plot_experiment(filename):
     state = []
     mode = []
 
-    with open(
-        filename,
-        'r'
-    ) as csv_file:
+    try:
 
-        reader = csv.DictReader(csv_file)
+        with open(
+            filename,
+            "r",
+        ) as csv_file:
 
-        for row in reader:
-
-            time_data.append(
-                float(row['Time'])
+            reader = csv.DictReader(
+                csv_file
             )
 
-            theta.append(
-                float(row['theta'])
-            )
+            for row in reader:
 
-            theta_dot.append(
-                float(row['thetaDot'])
-            )
+                time_data.append(
+                    float(
+                        row["Time"]
+                    )
+                )
 
-            x.append(
-                float(row['x'])
-            )
+                theta.append(
+                    float(
+                        row["theta"]
+                    )
+                )
 
-            x_dot_obs.append(
-                float(row['xDotObs'])
-            )
+                theta_dot.append(
+                    float(
+                        row["thetaDot"]
+                    )
+                )
 
-            x_dot_xactual.append(
-                float(row['xDotXActual'])
-            )
+                x.append(
+                    float(
+                        row["x"]
+                    )
+                )
 
-            u.append(
-                float(row['u'])
-            )
+                x_dot_obs.append(
+                    float(
+                        row["xDotObs"]
+                    )
+                )
 
-            state.append(
-                int(float(row['state']))
-            )
+                x_dot_xactual.append(
+                    float(
+                        row["xDotXActual"]
+                    )
+                )
 
-            mode.append(
-                int(float(row['mode']))
-            )
+                u.append(
+                    float(
+                        row["u"]
+                    )
+                )
+
+                state.append(
+                    int(
+                        float(
+                            row["state"]
+                        )
+                    )
+                )
+
+                mode.append(
+                    int(
+                        float(
+                            row["mode"]
+                        )
+                    )
+                )
+
+    except Exception as exc:
+
+        print(
+            f"Error leyendo CSV: {exc}"
+        )
+
+        return
 
     if len(time_data) == 0:
 
@@ -77,97 +132,190 @@ def plot_experiment(filename):
         return
 
     print(
-        f"Graficando {len(time_data)} muestras..."
+        f"Graficando "
+        f"{len(time_data)} muestras..."
     )
 
-    plt.figure()
+    # -------------------------------------------------
+    # Pendulum
+    # -------------------------------------------------
+
+    plt.figure(
+        "Pendulum state"
+    )
 
     plt.plot(
         time_data,
         theta,
-        label='theta [rad]'
+        label="theta [rad]",
     )
 
     plt.plot(
         time_data,
         theta_dot,
-        label='thetaDot [rad/s]'
+        label="thetaDot [rad/s]",
     )
 
-    plt.xlabel('Time [s]')
-    plt.ylabel('Pendulum state')
-    plt.title('Pendulum angle and angular velocity')
-    plt.grid(True)
+    plt.xlabel(
+        "Time [s]"
+    )
+
+    plt.ylabel(
+        "Pendulum state"
+    )
+
+    plt.title(
+        "Pendulum angle and angular velocity"
+    )
+
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    plt.figure()
+    # -------------------------------------------------
+    # Cart position
+    # -------------------------------------------------
+
+    plt.figure(
+        "Cart position"
+    )
 
     plt.plot(
         time_data,
         x,
-        label='x [m]'
+        label="x [m]",
     )
 
-    plt.xlabel('Time [s]')
-    plt.ylabel('Position [m]')
-    plt.title('Cart position')
-    plt.grid(True)
+    plt.xlabel(
+        "Time [s]"
+    )
+
+    plt.ylabel(
+        "Position [m]"
+    )
+
+    plt.title(
+        "Cart position"
+    )
+
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    plt.figure()
+    # -------------------------------------------------
+    # Cart velocity
+    # -------------------------------------------------
+
+    plt.figure(
+        "Cart velocity"
+    )
 
     plt.plot(
         time_data,
         x_dot_obs,
-        label='xDotObs [m/s]'
+        label="xDotObs [m/s]",
     )
 
     plt.plot(
         time_data,
         x_dot_xactual,
-        label='xDotXActual [m/s]'
+        label="xDotXActual [m/s]",
     )
 
-    plt.xlabel('Time [s]')
-    plt.ylabel('Velocity [m/s]')
-    plt.title('Cart velocity comparison')
-    plt.grid(True)
+    plt.xlabel(
+        "Time [s]"
+    )
+
+    plt.ylabel(
+        "Velocity [m/s]"
+    )
+
+    plt.title(
+        "Cart velocity comparison"
+    )
+
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    plt.figure()
+    # -------------------------------------------------
+    # Control action
+    # -------------------------------------------------
+
+    plt.figure(
+        "Control action"
+    )
 
     plt.plot(
         time_data,
         u,
-        label='u [m/s²]'
+        label="u [m/s²]",
     )
 
-    plt.xlabel('Time [s]')
-    plt.ylabel('Control acceleration [m/s²]')
-    plt.title('Control action')
-    plt.grid(True)
+    plt.xlabel(
+        "Time [s]"
+    )
+
+    plt.ylabel(
+        "Control acceleration [m/s²]"
+    )
+
+    plt.title(
+        "Control action"
+    )
+
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    plt.figure()
+    # -------------------------------------------------
+    # System state / control mode
+    # -------------------------------------------------
+
+    plt.figure(
+        "System state"
+    )
 
     plt.step(
         time_data,
         state,
-        where='post',
-        label='SystemState'
+        where="post",
+        label="SystemState",
     )
 
     plt.step(
         time_data,
         mode,
-        where='post',
-        label='ControlMode'
+        where="post",
+        label="ControlMode",
     )
 
-    plt.xlabel('Time [s]')
-    plt.ylabel('State / Mode')
-    plt.title('System state and control mode')
-    plt.grid(True)
+    plt.xlabel(
+        "Time [s]"
+    )
+
+    plt.ylabel(
+        "State / Mode"
+    )
+
+    plt.title(
+        "System state and control mode"
+    )
+
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    plt.show()
+    plt.show(
+        block=block
+    )
