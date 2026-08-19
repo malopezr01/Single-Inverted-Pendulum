@@ -1,12 +1,18 @@
 import csv
 
 import matplotlib
-matplotlib.use('TkAgg')
+
+matplotlib.use(
+    "QtAgg"
+)
 
 import matplotlib.pyplot as plt
 
 
-def plot_experiment(filename):
+def plot_experiment(
+    filename,
+    block=False,
+):
 
     time_data = []
 
@@ -20,52 +26,89 @@ def plot_experiment(filename):
 
     u = []
 
-    # ========================================================
-    # CARGAR CSV
-    # ========================================================
+    state = []
+    mode = []
 
-    with open(
-        filename,
-        'r'
-    ) as csv_file:
+    try:
 
-        reader = csv.DictReader(csv_file)
+        with open(
+            filename,
+            "r",
+        ) as csv_file:
 
-        for row in reader:
-
-            time_data.append(
-                float(row['Time'])
+            reader = csv.DictReader(
+                csv_file
             )
 
-            theta.append(
-                float(row['theta'])
-            )
+            for row in reader:
 
-            theta_dot.append(
-                float(row['thetaDot'])
-            )
+                time_data.append(
+                    float(
+                        row["Time"]
+                    )
+                )
 
-            x.append(
-                float(row['x'])
-            )
+                theta.append(
+                    float(
+                        row["theta"]
+                    )
+                )
 
-            x_dot_obs.append(
-                float(row['xDotObs'])
-            )
+                theta_dot.append(
+                    float(
+                        row["thetaDot"]
+                    )
+                )
 
-            x_dot_xactual.append(
-                float(row['xDotXActual'])
-            )
+                x.append(
+                    float(
+                        row["x"]
+                    )
+                )
 
-            u.append(
-                float(row['u'])
-            )
+                x_dot_obs.append(
+                    float(
+                        row["xDotObs"]
+                    )
+                )
 
-    # ========================================================
-    # COMPROBAR DATOS
-    # ========================================================
+                x_dot_xactual.append(
+                    float(
+                        row["xDotXActual"]
+                    )
+                )
 
-    if len(time_data) == 0:
+                u.append(
+                    float(
+                        row["u"]
+                    )
+                )
+
+                state.append(
+                    int(
+                        float(
+                            row["state"]
+                        )
+                    )
+                )
+
+                mode.append(
+                    int(
+                        float(
+                            row["mode"]
+                        )
+                    )
+                )
+
+    except Exception as exc:
+
+        print(
+            f"Error leyendo CSV: {exc}"
+        )
+
+        return
+
+    if not time_data:
 
         print(
             "No hay datos para graficar."
@@ -74,131 +117,206 @@ def plot_experiment(filename):
         return
 
     print(
-        f"Graficando {len(time_data)} muestras..."
+        (
+            f"Graficando "
+            f"{len(time_data)} muestras..."
+        )
     )
 
-    # ========================================================
-    # 1. PÉNDULO
-    # ========================================================
+    # =============================================
+    # Pendulum
+    # =============================================
 
-    plt.figure()
+    plt.figure(
+        "Pendulum state"
+    )
 
     plt.plot(
         time_data,
         theta,
-        label='theta [rad]'
+        label="theta [rad]",
     )
 
     plt.plot(
         time_data,
         theta_dot,
-        label='thetaDot [rad/s]'
+        label="thetaDot [rad/s]",
     )
 
     plt.xlabel(
-        'Time [s]'
+        "Time [s]"
     )
 
     plt.ylabel(
-        'Pendulum state'
+        "Pendulum state"
     )
 
     plt.title(
-        'Pendulum angle and angular velocity'
+        "Pendulum angle and angular velocity"
     )
 
-    plt.grid(True)
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    # ========================================================
-    # 2. POSICIÓN DEL CARRO
-    # ========================================================
+    # =============================================
+    # Position
+    # =============================================
 
-    plt.figure()
+    plt.figure(
+        "Cart position"
+    )
 
     plt.plot(
         time_data,
         x,
-        label='x [m]'
+        label="x [m]",
     )
 
     plt.xlabel(
-        'Time [s]'
+        "Time [s]"
     )
 
     plt.ylabel(
-        'Position [m]'
+        "Position [m]"
     )
 
     plt.title(
-        'Cart position'
+        "Cart position"
     )
 
-    plt.grid(True)
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    # ========================================================
-    # 3. VELOCIDAD DEL CARRO
-    # ========================================================
+    # =============================================
+    # Velocity
+    # =============================================
 
-    plt.figure()
+    plt.figure(
+        "Cart velocity"
+    )
 
     plt.plot(
         time_data,
         x_dot_obs,
-        label='xDotObs [m/s]'
+        label="xDotObs [m/s]",
     )
 
     plt.plot(
         time_data,
         x_dot_xactual,
-        label='xDotXActual [m/s]'
+        label="xDotXActual [m/s]",
     )
 
     plt.xlabel(
-        'Time [s]'
+        "Time [s]"
     )
 
     plt.ylabel(
-        'Velocity [m/s]'
+        "Velocity [m/s]"
     )
 
     plt.title(
-        'Cart velocity comparison'
+        "Cart velocity comparison"
     )
 
-    plt.grid(True)
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    # ========================================================
-    # 4. CONTROL
-    # ========================================================
+    # =============================================
+    # Control
+    # =============================================
 
-    plt.figure()
+    plt.figure(
+        "Control action"
+    )
 
     plt.plot(
         time_data,
         u,
-        label='u [m/s²]'
+        label="u [m/s²]",
     )
 
     plt.xlabel(
-        'Time [s]'
+        "Time [s]"
     )
 
     plt.ylabel(
-        'Control acceleration [m/s²]'
+        "Control acceleration [m/s²]"
     )
 
     plt.title(
-        'Control action'
+        "Control action"
     )
 
-    plt.grid(True)
+    plt.grid(
+        True
+    )
+
     plt.legend()
 
-    # ========================================================
-    # MOSTRAR TODAS LAS FIGURAS
-    # ========================================================
+    # =============================================
+    # State / Mode
+    # =============================================
 
-    plt.show()
+    plt.figure(
+        "System state"
+    )
+
+    plt.step(
+        time_data,
+        state,
+        where="post",
+        label="SystemState",
+    )
+
+    plt.step(
+        time_data,
+        mode,
+        where="post",
+        label="ControlMode",
+    )
+
+    plt.xlabel(
+        "Time [s]"
+    )
+
+    plt.ylabel(
+        "State / Mode"
+    )
+
+    plt.title(
+        "System state and control mode"
+    )
+
+    plt.grid(
+        True
+    )
+
+    plt.legend()
+
+    plt.show(
+        block=block
+    )
+
+
+def close_all_plots():
+    """
+    Cierra todas las ventanas matplotlib.
+
+    Se usa antes de terminar QApplication para
+    que Qt no destruya widgets matplotlib después
+    de haber destruido ya el backend gráfico.
+    """
+
+    plt.close(
+        "all"
+    )

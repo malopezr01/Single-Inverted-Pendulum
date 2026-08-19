@@ -1,422 +1,230 @@
-import csv
-import os
-import threading
-import time
+import signal
+import sys
 
-from datetime import datetime
+from PySide6.QtCore import (
+    QThread,
+    QTimer,
+)
 
-from serial_link import SerialLink
-from realtime_plot import plot_experiment
+from PySide6.QtWidgets import QApplication
+
+from gui import MainWindow
+
+from serial_link import (
+    SerialLink,
+    SerialWorker,
+)
 
 
-SERIAL_PORT = '/dev/ttyACM0'
+SERIAL_PORT = "/dev/ttyACM0"
 BAUDRATE = 115200
 
-EXPERIMENTS_DIR = 'experiments'
-
-
-# ============================================================
-# CREAR ARCHIVO DE ENSAYO
-# ============================================================
-
-def create_experiment_file():
-
-    os.makedirs(
-        EXPERIMENTS_DIR,
-        exist_ok=True
-    )
-
-    timestamp = datetime.now().strftime(
-        '%Y-%m-%d_%H-%M-%S'
-    )
-
-    filename = os.path.join(
-        EXPERIMENTS_DIR,
-        f'experiment_{timestamp}.csv'
-    )
-
-    return filename
-
-
-# ============================================================
-# HILO DE TECLADO
-# ============================================================
-
-def keyboard_thread(
-    serial_link,
-    state
-):
-
-    while not state["quit"]:
-
-        command = input().strip().upper()
-
-        # ====================================================
-        # START
-        # ====================================================
-
-        if command == "R":
-
-            if not state["running"]:
-
-                # Limpiar cualquier telemetría antigua
-                serial_link.ser.reset_input_buffer()
-
-                serial_link.send_command(
-                    "R"
-                )
-
-                state["running"] = True
-
-                print()
-                print(
-                    ">>> R enviada al ESP32"
-                )
-
-                print(
-                    ">>> Experimento iniciado"
-                )
-
-                print()
-
-        # ====================================================
-        # STOP
-        # ====================================================
-
-        elif command == "S":
-
-            if state["running"]:
-
-                serial_link.send_command(
-                    "S"
-                )
-
-                state["running"] = False
-                state["finished"] = True
-
-                print()
-                print(
-                    ">>> S enviada al ESP32"
-                )
-
-                print(
-                    ">>> Experimento detenido"
-                )
-
-                print()
-
-        # ====================================================
-        # QUIT
-        # ====================================================
-
-        elif command == "Q":
-
-            if state["running"]:
-
-                serial_link.send_command(
-                    "S"
-                )
-
-            state["running"] = False
-            state["quit"] = True
-
-
-# ============================================================
-# MAIN
-# ============================================================
 
 def main():
 
-    # ========================================================
-    # ABRIR SERIAL
-    # ========================================================
+    # =============================================
+    # Qt application
+    # =============================================
+
+    app = QApplication(
+        sys.argv
+    )
+
+    app.setApplicationName(
+        "Inverted Pendulum Control"
+    )
+
+        # IMPORTANTE:
+    #
+    # No queremos que Qt termine automáticamente
+    # cuando se cierre MainWindow.
+    #
+    # Primero necesitamos:
+    #
+    # 1. cerrar plots matplotlib
+    # 2. pedir al SerialWorker que termine
+    # 3. cerrar Serial
+    # 4. terminar su QThread
+    # 5. entonces cerrar QApplication
+
+    app.setQuitOnLastWindowClosed(
+        False
+    )
+
+    # =============================================
+    # Serial
+    # =============================================
 
     serial_link = SerialLink(
         port=SERIAL_PORT,
-        baudrate=BAUDRATE
+        baudrate=BAUDRATE,
+        timeout=0.02,
     )
 
-    # ========================================================
-    # CREAR ARCHIVO
-    # ========================================================
+    serial_worker = SerialWorker(
+        serial_link
+    )
 
-    csv_filename = create_experiment_file()
+    serial_thread = QThread()
 
-    # ========================================================
-    # ESTADO
-    # ========================================================
+    serial_worker.moveToThread(
+        serial_thread
+    )
 
-    state = {
-        "running": False,
-        "finished": False,
-        "quit": False
+    # =============================================
+    # GUI
+    # =============================================
+
+    window = MainWindow(
+        serial_worker
+    )
+
+    # =============================================
+    # Inicio del thread Serial
+    # =============================================
+
+    serial_thread.started.connect(
+        serial_worker.start
+    )
+
+    # =============================================
+    # Serial -> GUI
+    # =============================================
+
+    serial_worker.telemetry_received.connect(
+        window.handle_telemetry
+    )
+
+    serial_worker.message_received.connect(
+        window.handle_message
+    )
+
+    serial_worker.connection_changed.connect(
+        window.handle_connection_changed
+    )
+
+    serial_worker.serial_error.connect(
+        window.handle_serial_error
+    )
+
+    # =============================================
+    # GUI -> Serial
+    #
+    # MUY IMPORTANTE:
+    #
+    # No llamamos serial_worker.stop() directamente
+    # desde MainWindow.
+    #
+    # MainWindow emite una SIGNAL.
+    #
+    # Como SerialWorker vive en serial_thread,
+    # Qt ejecutará SerialWorker.stop() dentro de
+    # ese thread.
+    # =============================================
+
+    window.shutdown_requested.connect(
+        serial_worker.stop
+    )
+
+    # =============================================
+    # Finalización ordenada
+    # =============================================
+
+    serial_worker.finished.connect(
+        serial_thread.quit
+    )
+
+    # Sólo cuando el thread Serial ha terminado
+    # dejamos terminar QApplication.
+    serial_thread.finished.connect(
+        app.quit
+    )
+
+    # =============================================
+    # Ctrl+C
+    # =============================================
+
+    shutdown_requested = {
+        "value": False
     }
 
-    # ========================================================
-    # INTERFAZ
-    # ========================================================
-
-    print()
-    print(
-        "======================================"
-    )
-
-    print(
-        " SIMPLE INVERTED PENDULUM"
-    )
-
-    print(
-        "======================================"
-    )
-
-    print()
-
-    print(
-        "R + ENTER -> iniciar experimento"
-    )
-
-    print(
-        "S + ENTER -> detener y graficar"
-    )
-
-    print(
-        "Q + ENTER -> salir"
-    )
-
-    print()
-
-    print(
-        f"Datos: {csv_filename}"
-    )
-
-    print()
-
-    # ========================================================
-    # HILO DE TECLADO
-    # ========================================================
-
-    thread = threading.Thread(
-        target=keyboard_thread,
-        args=(
-            serial_link,
-            state
-        ),
-        daemon=True
-    )
-
-    thread.start()
-
-    # ========================================================
-    # CONTADORES
-    # ========================================================
-
-    sample_counter = 0
-
-    last_status_time = (
-        time.perf_counter()
-    )
-
-    last_esp_time = None
-
-    # ========================================================
-    # ADQUISICIÓN
-    # ========================================================
-
-    try:
-
-        with open(
-            csv_filename,
-            'w',
-            newline='',
-            buffering=8192
-        ) as csv_file:
-
-            writer = csv.writer(
-                csv_file
-            )
-
-            # =================================================
-            # CABECERA CSV
-            # =================================================
-
-            writer.writerow([
-                'Time',
-                'theta',
-                'thetaDot',
-                'x',
-                'xDotObs',
-                'xDotXActual',
-                'u'
-            ])
-
-            # =================================================
-            # BUCLE PRINCIPAL
-            # =================================================
-
-            while not state["quit"]:
-
-                # ---------------------------------------------
-                # Ensayo terminado
-                # ---------------------------------------------
-
-                if state["finished"]:
-                    break
-
-                # ---------------------------------------------
-                # Esperando R
-                # ---------------------------------------------
-
-                if not state["running"]:
-
-                    time.sleep(
-                        0.01
-                    )
-
-                    continue
-
-                # ---------------------------------------------
-                # Leer ESP32
-                # ---------------------------------------------
-
-                data = serial_link.read_packet()
-
-                if data is None:
-                    continue
-
-                # ---------------------------------------------
-                # Guardar CSV
-                # ---------------------------------------------
-
-                writer.writerow([
-                    data['Time'],
-                    data['theta'],
-                    data['thetaDot'],
-                    data['x'],
-                    data['xDotObs'],
-                    data['xDotXActual'],
-                    data['u']
-                ])
-
-                sample_counter += 1
-
-                # ---------------------------------------------
-                # Detectar saltos temporales
-                # ---------------------------------------------
-
-                if last_esp_time is not None:
-
-                    dt = (
-                        data['Time']
-                        - last_esp_time
-                    )
-
-                    if dt < 0:
-
-                        print()
-                        print(
-                            f"AVISO: Time retrocede "
-                            f"{last_esp_time:.4f} "
-                            f"-> {data['Time']:.4f}"
-                        )
-
-                last_esp_time = (
-                    data['Time']
-                )
-
-                # ---------------------------------------------
-                # Estado una vez por segundo
-                # ---------------------------------------------
-
-                now = (
-                    time.perf_counter()
-                )
-
-                if (
-                    now
-                    - last_status_time
-                    >= 1.0
-                ):
-
-                    print(
-                        f"\r"
-                        f"Recibiendo... "
-                        f"t={data['Time']:.4f} s | "
-                        f"muestras={sample_counter}",
-                        end='',
-                        flush=True
-                    )
-
-                    last_status_time = now
-
-            # =================================================
-            # FORZAR ESCRITURA FINAL
-            # =================================================
-
-            csv_file.flush()
-
-    # ========================================================
-    # CTRL+C
-    # ========================================================
-
-    except KeyboardInterrupt:
-
-        print()
-        print()
-
-        if state["running"]:
-
-            serial_link.send_command(
-                "S"
-            )
-
-        print(
-            "Ctrl+C detectado."
-        )
-
-    # ========================================================
-    # CIERRE SERIAL
-    # ========================================================
-
-    finally:
-
-        serial_link.close()
-
-    # ========================================================
-    # RESULTADO
-    # ========================================================
-
-    print()
-    print()
-
-    print(
-        f"Ensayo guardado: "
-        f"{csv_filename}"
-    )
-
-    print(
-        f"Muestras recibidas: "
-        f"{sample_counter}"
-    )
-
-    # ========================================================
-    # GRAFICAR
-    # ========================================================
-
-    if sample_counter > 0:
+    def handle_sigint(
+        signum,
+        frame,
+    ):
+        """
+        Ctrl+C ya no genera KeyboardInterrupt
+        dentro de los callbacks de Qt.
+
+        En su lugar pedimos a Qt que cierre
+        MainWindow normalmente.
+        """
+
+        if shutdown_requested["value"]:
+            return
+
+        shutdown_requested["value"] = True
 
         print()
         print(
-            "Generando gráficas..."
+            "Ctrl+C detectado. "
+            "Cerrando aplicación..."
         )
 
-        plot_experiment(
-            csv_filename
+        # No ejecutamos window.close() directamente
+        # dentro del signal handler.
+        #
+        # Lo ponemos en la cola de eventos Qt.
+        QTimer.singleShot(
+            0,
+            window.close,
         )
 
+    signal.signal(
+        signal.SIGINT,
+        handle_sigint,
+    )
 
-# ============================================================
-# ENTRY POINT
-# ============================================================
+    # =============================================
+    # Timer para procesamiento de señales Python
+    # =============================================
 
-if __name__ == '__main__':
+    signal_timer = QTimer()
+
+    signal_timer.timeout.connect(
+        lambda: None
+    )
+
+    signal_timer.start(
+        100
+    )
+
+    # =============================================
+    # Start
+    # =============================================
+
+    window.show()
+
+    serial_thread.start()
+
+    exit_code = app.exec()
+
+    # =============================================
+    # Aquí el Serial thread YA debería haber
+    # terminado.
+    #
+    # No llamamos worker.stop() desde aquí porque
+    # sería volver a cruzar threads incorrectamente.
+    # =============================================
+
+    serial_thread.wait(
+        1500
+    )
+
+    sys.exit(
+        exit_code
+    )
+
+
+if __name__ == "__main__":
     main()
