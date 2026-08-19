@@ -1,6 +1,10 @@
+import signal
 import sys
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import (
+    QThread,
+    QTimer,
+)
 
 from PySide6.QtWidgets import QApplication
 
@@ -13,7 +17,6 @@ from serial_link import (
 
 
 SERIAL_PORT = "/dev/ttyACM0"
-
 BAUDRATE = 115200
 
 
@@ -29,6 +32,23 @@ def main():
 
     app.setApplicationName(
         "Inverted Pendulum Control"
+    )
+
+        # IMPORTANTE:
+    #
+    # No queremos que Qt termine automáticamente
+    # cuando se cierre MainWindow.
+    #
+    # Primero necesitamos:
+    #
+    # 1. cerrar plots matplotlib
+    # 2. pedir al SerialWorker que termine
+    # 3. cerrar Serial
+    # 4. terminar su QThread
+    # 5. entonces cerrar QApplication
+
+    app.setQuitOnLastWindowClosed(
+        False
     )
 
     # =============================================
@@ -60,19 +80,15 @@ def main():
     )
 
     # =============================================
-    # Serial thread startup
+    # Inicio del thread Serial
     # =============================================
 
     serial_thread.started.connect(
         serial_worker.start
     )
 
-    serial_worker.finished.connect(
-        serial_thread.quit
-    )
-
     # =============================================
-    # Serial -> GUI signals
+    # Serial -> GUI
     # =============================================
 
     serial_worker.telemetry_received.connect(
@@ -92,14 +108,101 @@ def main():
     )
 
     # =============================================
+    # GUI -> Serial
+    #
+    # MUY IMPORTANTE:
+    #
+    # No llamamos serial_worker.stop() directamente
+    # desde MainWindow.
+    #
+    # MainWindow emite una SIGNAL.
+    #
+    # Como SerialWorker vive en serial_thread,
+    # Qt ejecutará SerialWorker.stop() dentro de
+    # ese thread.
+    # =============================================
+
+    window.shutdown_requested.connect(
+        serial_worker.stop
+    )
+
+    # =============================================
+    # Finalización ordenada
+    # =============================================
+
+    serial_worker.finished.connect(
+        serial_thread.quit
+    )
+
+    # Sólo cuando el thread Serial ha terminado
+    # dejamos terminar QApplication.
+    serial_thread.finished.connect(
+        app.quit
+    )
+
+    # =============================================
+    # Ctrl+C
+    # =============================================
+
+    shutdown_requested = {
+        "value": False
+    }
+
+    def handle_sigint(
+        signum,
+        frame,
+    ):
+        """
+        Ctrl+C ya no genera KeyboardInterrupt
+        dentro de los callbacks de Qt.
+
+        En su lugar pedimos a Qt que cierre
+        MainWindow normalmente.
+        """
+
+        if shutdown_requested["value"]:
+            return
+
+        shutdown_requested["value"] = True
+
+        print()
+        print(
+            "Ctrl+C detectado. "
+            "Cerrando aplicación..."
+        )
+
+        # No ejecutamos window.close() directamente
+        # dentro del signal handler.
+        #
+        # Lo ponemos en la cola de eventos Qt.
+        QTimer.singleShot(
+            0,
+            window.close,
+        )
+
+    signal.signal(
+        signal.SIGINT,
+        handle_sigint,
+    )
+
+    # =============================================
+    # Timer para procesamiento de señales Python
+    # =============================================
+
+    signal_timer = QTimer()
+
+    signal_timer.timeout.connect(
+        lambda: None
+    )
+
+    signal_timer.start(
+        100
+    )
+
+    # =============================================
     # Start
     # =============================================
 
-    print("minimumSize:", window.minimumSize())
-    print("minimumSizeHint:", window.minimumSizeHint())
-    print("maximumSize:", window.maximumSize())
-    print("sizeHint:", window.sizeHint())
-    print("flags:", window.windowFlags())
     window.show()
 
     serial_thread.start()
@@ -107,19 +210,12 @@ def main():
     exit_code = app.exec()
 
     # =============================================
-    # Final cleanup
+    # Aquí el Serial thread YA debería haber
+    # terminado.
+    #
+    # No llamamos worker.stop() desde aquí porque
+    # sería volver a cruzar threads incorrectamente.
     # =============================================
-
-    try:
-
-        serial_worker.stop(
-            send_stop=False
-        )
-
-    except Exception:
-        pass
-
-    serial_thread.quit()
 
     serial_thread.wait(
         1500

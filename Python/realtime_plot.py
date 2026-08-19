@@ -2,8 +2,9 @@ import csv
 
 import matplotlib
 
-# La aplicación principal utiliza Qt/PySide6.
-matplotlib.use("QtAgg")
+matplotlib.use(
+    "QtAgg"
+)
 
 import matplotlib.pyplot as plt
 
@@ -12,22 +13,6 @@ def plot_experiment(
     filename,
     block=False,
 ):
-    """
-    Genera las gráficas finales de un experimento.
-
-    Mantiene el mismo formato CSV del programa
-    original y utiliza Time enviado por el ESP32
-    como eje temporal.
-
-    Parameters
-    ----------
-    filename : str
-        Ruta del CSV del experimento.
-
-    block : bool
-        Si True, plt.show() bloquea.
-        En la GUI normalmente usamos False.
-    """
 
     time_data = []
 
@@ -123,7 +108,7 @@ def plot_experiment(
 
         return
 
-    if len(time_data) == 0:
+    if not time_data:
 
         print(
             "No hay datos para graficar."
@@ -132,13 +117,15 @@ def plot_experiment(
         return
 
     print(
-        f"Graficando "
-        f"{len(time_data)} muestras..."
+        (
+            f"Graficando "
+            f"{len(time_data)} muestras..."
+        )
     )
 
-    # -------------------------------------------------
+    # =============================================
     # Pendulum
-    # -------------------------------------------------
+    # =============================================
 
     plt.figure(
         "Pendulum state"
@@ -174,9 +161,9 @@ def plot_experiment(
 
     plt.legend()
 
-    # -------------------------------------------------
-    # Cart position
-    # -------------------------------------------------
+    # =============================================
+    # Position
+    # =============================================
 
     plt.figure(
         "Cart position"
@@ -206,9 +193,9 @@ def plot_experiment(
 
     plt.legend()
 
-    # -------------------------------------------------
-    # Cart velocity
-    # -------------------------------------------------
+    # =============================================
+    # Velocity
+    # =============================================
 
     plt.figure(
         "Cart velocity"
@@ -244,9 +231,9 @@ def plot_experiment(
 
     plt.legend()
 
-    # -------------------------------------------------
-    # Control action
-    # -------------------------------------------------
+    # =============================================
+    # Control
+    # =============================================
 
     plt.figure(
         "Control action"
@@ -276,9 +263,9 @@ def plot_experiment(
 
     plt.legend()
 
-    # -------------------------------------------------
-    # System state / control mode
-    # -------------------------------------------------
+    # =============================================
+    # State / Mode
+    # =============================================
 
     plt.figure(
         "System state"
@@ -318,4 +305,18 @@ def plot_experiment(
 
     plt.show(
         block=block
+    )
+
+
+def close_all_plots():
+    """
+    Cierra todas las ventanas matplotlib.
+
+    Se usa antes de terminar QApplication para
+    que Qt no destruya widgets matplotlib después
+    de haber destruido ya el backend gráfico.
+    """
+
+    plt.close(
+        "all"
     )

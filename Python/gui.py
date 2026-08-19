@@ -7,6 +7,7 @@ from PySide6.QtCore import (
     QTime,
     QTimer,
     Qt,
+    Signal,
 )
 
 from PySide6.QtGui import QFont
@@ -27,10 +28,15 @@ from PySide6.QtWidgets import (
 )
 
 from experiment_logger import ExperimentLogger
-from realtime_plot import plot_experiment
+
+from realtime_plot import (
+    close_all_plots,
+    plot_experiment,
+)
 
 
 class SystemState(IntEnum):
+
     INIT = 0
     HOMING = 1
     READY = 2
@@ -39,6 +45,7 @@ class SystemState(IntEnum):
 
 
 class ControlMode(IntEnum):
+
     NONE = 0
     LQR = 1
     LQR_FRICTION = 2
@@ -47,6 +54,22 @@ class ControlMode(IntEnum):
 
 class MainWindow(QMainWindow):
 
+    # =============================================
+    # Shutdown request
+    #
+    # bool:
+    #
+    # True  -> mandar S antes de cerrar Serial
+    # False -> cerrar Serial directamente
+    #
+    # Esta señal es la clave para no llamar
+    # SerialWorker.stop() desde el GUI thread.
+    # =============================================
+
+    shutdown_requested = Signal(
+        bool
+    )
+
     PLOT_WINDOW_SECONDS = 15.0
 
     def __init__(
@@ -54,9 +77,14 @@ class MainWindow(QMainWindow):
         serial_worker,
         parent=None,
     ):
-        super().__init__(parent)
 
-        self.serial_worker = serial_worker
+        super().__init__(
+            parent
+        )
+
+        self.serial_worker = (
+            serial_worker
+        )
 
         self.logger = ExperimentLogger(
             experiments_dir="experiments"
@@ -65,22 +93,29 @@ class MainWindow(QMainWindow):
         self.connected = False
 
         self.current_state = None
+
         self.current_mode = None
 
         self.start_pending = False
 
+        self.finish_pending = False
+
+        self.shutdown_started = False
+
         # =============================================
-        # Buffers de visualización
+        # Buffers
         # =============================================
 
         self.time_buffer = deque()
 
         self.theta_buffer = deque()
+
         self.x_buffer = deque()
+
         self.u_buffer = deque()
 
         # =============================================
-        # Ventana
+        # Window
         # =============================================
 
         self.setWindowTitle(
@@ -95,7 +130,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
         # =============================================
-        # Refresco gráfico
+        # Plot refresh
         # =============================================
 
         self.plot_timer = QTimer(
@@ -145,7 +180,7 @@ class MainWindow(QMainWindow):
         )
 
         # =============================================
-        # Cabecera
+        # Header
         # =============================================
 
         header_layout = QHBoxLayout()
@@ -155,8 +190,14 @@ class MainWindow(QMainWindow):
         )
 
         title_font = QFont()
-        title_font.setPointSize(15)
-        title_font.setBold(True)
+
+        title_font.setPointSize(
+            15
+        )
+
+        title_font.setBold(
+            True
+        )
 
         title_label.setFont(
             title_font
@@ -173,7 +214,7 @@ class MainWindow(QMainWindow):
         )
 
         # =============================================
-        # Estado del sistema
+        # System status
         # =============================================
 
         status_group = QGroupBox(
@@ -196,12 +237,10 @@ class MainWindow(QMainWindow):
             6,
         )
 
-        status_layout.setHorizontalSpacing(
-            10
-        )
-
         status_layout.addWidget(
-            QLabel("Connection"),
+            QLabel(
+                "Connection"
+            ),
             0,
             0,
         )
@@ -221,7 +260,9 @@ class MainWindow(QMainWindow):
         )
 
         status_layout.addWidget(
-            QLabel("SystemState"),
+            QLabel(
+                "SystemState"
+            ),
             0,
             2,
         )
@@ -241,7 +282,9 @@ class MainWindow(QMainWindow):
         )
 
         status_layout.addWidget(
-            QLabel("ControlMode"),
+            QLabel(
+                "ControlMode"
+            ),
             0,
             4,
         )
@@ -280,7 +323,7 @@ class MainWindow(QMainWindow):
         )
 
         # =============================================
-        # Valores numéricos
+        # Telemetry
         # =============================================
 
         values_group = QGroupBox(
@@ -301,14 +344,6 @@ class MainWindow(QMainWindow):
             6,
             8,
             6,
-        )
-
-        values_layout.setHorizontalSpacing(
-            10
-        )
-
-        values_layout.setVerticalSpacing(
-            3
         )
 
         self.value_labels = {}
@@ -360,6 +395,7 @@ class MainWindow(QMainWindow):
         ):
 
             row = index // 2
+
             column = (
                 index % 2
             ) * 3
@@ -417,13 +453,15 @@ class MainWindow(QMainWindow):
         )
 
         # =============================================
-        # Gráficas en tiempo real
+        # Real-time plots
         # =============================================
 
         plots_group = QGroupBox(
             (
                 "Real-time plots "
-                f"(last {self.PLOT_WINDOW_SECONDS:.0f} s)"
+                f"(last "
+                f"{self.PLOT_WINDOW_SECONDS:.0f} s "
+                "active time)"
             )
         )
 
@@ -443,24 +481,12 @@ class MainWindow(QMainWindow):
             4,
         )
 
-        # ---------------------------------------------
-        # QSplitter vertical
-        #
-        # Evita que la suma de los sizeHint de las
-        # gráficas fuerce una ventana gigantesca.
-        # ---------------------------------------------
-
         self.plot_splitter = QSplitter(
             Qt.Vertical
         )
 
         self.plot_splitter.setChildrenCollapsible(
             False
-        )
-
-        self.plot_splitter.setSizePolicy(
-            QSizePolicy.Expanding,
-            QSizePolicy.Expanding,
         )
 
         self.theta_plot = (
@@ -541,7 +567,7 @@ class MainWindow(QMainWindow):
         )
 
         # =============================================
-        # Consola
+        # Console
         # =============================================
 
         console_group = QGroupBox(
@@ -555,13 +581,6 @@ class MainWindow(QMainWindow):
 
         console_layout = QVBoxLayout(
             console_group
-        )
-
-        console_layout.setContentsMargins(
-            4,
-            4,
-            4,
-            4,
         )
 
         self.console = QTextEdit()
@@ -578,11 +597,6 @@ class MainWindow(QMainWindow):
             100
         )
 
-        self.console.setSizePolicy(
-            QSizePolicy.Expanding,
-            QSizePolicy.Fixed,
-        )
-
         console_layout.addWidget(
             self.console
         )
@@ -592,15 +606,10 @@ class MainWindow(QMainWindow):
         )
 
         # =============================================
-        # Controles
+        # Buttons
         # =============================================
 
         control_frame = QFrame()
-
-        control_frame.setSizePolicy(
-            QSizePolicy.Expanding,
-            QSizePolicy.Fixed,
-        )
 
         control_layout = QHBoxLayout(
             control_frame
@@ -613,16 +622,16 @@ class MainWindow(QMainWindow):
             0,
         )
 
-        control_layout.setSpacing(
-            8
-        )
-
         self.start_button = QPushButton(
-            "START"
+            "START / RESUME"
         )
 
         self.stop_button = QPushButton(
-            "STOP"
+            "STOP / PAUSE"
+        )
+
+        self.finish_button = QPushButton(
+            "FINISH EXPERIMENT"
         )
 
         self.estop_button = QPushButton(
@@ -630,12 +639,19 @@ class MainWindow(QMainWindow):
         )
 
         button_font = QFont()
-        button_font.setPointSize(13)
-        button_font.setBold(True)
+
+        button_font.setPointSize(
+            12
+        )
+
+        button_font.setBold(
+            True
+        )
 
         for button in [
             self.start_button,
             self.stop_button,
+            self.finish_button,
             self.estop_button,
         ]:
 
@@ -656,10 +672,6 @@ class MainWindow(QMainWindow):
                 QSizePolicy.Fixed,
             )
 
-        # ---------------------------------------------
-        # START
-        # ---------------------------------------------
-
         self.start_button.setStyleSheet(
             """
             QPushButton {
@@ -669,24 +681,12 @@ class MainWindow(QMainWindow):
                 padding: 8px;
             }
 
-            QPushButton:hover {
-                background-color: #3aa86b;
-            }
-
-            QPushButton:pressed {
-                background-color: #246b45;
-            }
-
             QPushButton:disabled {
                 background-color: #555555;
                 color: #999999;
             }
             """
         )
-
-        # ---------------------------------------------
-        # STOP
-        # ---------------------------------------------
 
         self.stop_button.setStyleSheet(
             """
@@ -697,12 +697,20 @@ class MainWindow(QMainWindow):
                 padding: 8px;
             }
 
-            QPushButton:hover {
-                background-color: #d99528;
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #999999;
             }
+            """
+        )
 
-            QPushButton:pressed {
-                background-color: #966419;
+        self.finish_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #4f5b66;
+                color: white;
+                border-radius: 6px;
+                padding: 8px;
             }
 
             QPushButton:disabled {
@@ -712,10 +720,6 @@ class MainWindow(QMainWindow):
             """
         )
 
-        # ---------------------------------------------
-        # EMERGENCY STOP
-        # ---------------------------------------------
-
         self.estop_button.setStyleSheet(
             """
             QPushButton {
@@ -723,14 +727,6 @@ class MainWindow(QMainWindow):
                 color: white;
                 border-radius: 6px;
                 padding: 8px;
-            }
-
-            QPushButton:hover {
-                background-color: #e53935;
-            }
-
-            QPushButton:pressed {
-                background-color: #9b1c1c;
             }
 
             QPushButton:disabled {
@@ -748,18 +744,24 @@ class MainWindow(QMainWindow):
             self._stop_clicked
         )
 
+        self.finish_button.clicked.connect(
+            self._finish_clicked
+        )
+
         self.estop_button.clicked.connect(
             self._estop_clicked
         )
 
         control_layout.addWidget(
-            self.start_button,
-            stretch=1,
+            self.start_button
         )
 
         control_layout.addWidget(
-            self.stop_button,
-            stretch=1,
+            self.stop_button
+        )
+
+        control_layout.addWidget(
+            self.finish_button
         )
 
         control_layout.addWidget(
@@ -772,14 +774,17 @@ class MainWindow(QMainWindow):
         )
 
     # =================================================
-    # Fonts
+    # Helpers
     # =================================================
 
     @staticmethod
     def _bold_font():
 
         font = QFont()
-        font.setBold(True)
+
+        font.setBold(
+            True
+        )
 
         return font
 
@@ -801,10 +806,6 @@ class MainWindow(QMainWindow):
         )
 
         return font
-
-    # =================================================
-    # Plot creation
-    # =================================================
 
     @staticmethod
     def _create_plot(
@@ -839,8 +840,6 @@ class MainWindow(QMainWindow):
             QSizePolicy.Ignored,
         )
 
-        # Muy pequeño deliberadamente:
-        # el QSplitter decide cuánto espacio obtiene.
         plot.setMinimumHeight(
             40
         )
@@ -857,22 +856,23 @@ class MainWindow(QMainWindow):
         text,
     ):
 
+        if self.shutdown_started:
+            return
+
         timestamp = (
-            QTime.currentTime().toString(
+            QTime
+            .currentTime()
+            .toString(
                 "HH:mm:ss.zzz"
             )
         )
 
         self.console.append(
-            f"[{timestamp}] [{source}] {text}"
-        )
-
-        scrollbar = (
-            self.console.verticalScrollBar()
-        )
-
-        scrollbar.setValue(
-            scrollbar.maximum()
+            (
+                f"[{timestamp}] "
+                f"[{source}] "
+                f"{text}"
+            )
         )
 
     # =================================================
@@ -885,7 +885,12 @@ class MainWindow(QMainWindow):
         description,
     ):
 
-        self.connected = connected
+        self.connected = (
+            connected
+        )
+
+        if self.shutdown_started:
+            return
 
         if connected:
 
@@ -895,14 +900,6 @@ class MainWindow(QMainWindow):
 
             self.connection_label.setStyleSheet(
                 "color: #2e8b57;"
-            )
-
-            self._append_console(
-                "PC",
-                (
-                    "ESP32 connected: "
-                    f"{description}"
-                ),
             )
 
         else:
@@ -915,35 +912,10 @@ class MainWindow(QMainWindow):
                 "color: #c62828;"
             )
 
-            self._append_console(
-                "PC",
-                (
-                    "ESP32 disconnected: "
-                    f"{description}"
-                ),
-            )
-
-            if self.logger.active:
-
-                filename, samples = (
-                    self.logger.stop()
-                )
-
-                self._append_console(
-                    "PC",
-                    (
-                        "Experiment interrupted. "
-                        f"{samples} samples saved."
-                    ),
-                )
-
-                if (
-                    filename
-                    and samples > 0
-                ):
-                    self._show_final_plots(
-                        filename
-                    )
+        self._append_console(
+            "PC",
+            description,
+        )
 
         self._update_buttons()
 
@@ -975,6 +947,9 @@ class MainWindow(QMainWindow):
         self,
         data,
     ):
+
+        if self.shutdown_started:
+            return
 
         self.value_labels[
             "Time"
@@ -1055,7 +1030,7 @@ class MainWindow(QMainWindow):
         )
 
         # =============================================
-        # Entrada en RUNNING
+        # Entrada RUNNING
         # =============================================
 
         if (
@@ -1067,9 +1042,9 @@ class MainWindow(QMainWindow):
 
             self.start_pending = False
 
-            self._clear_plot_buffers()
+            if not self.logger.active:
 
-            try:
+                self._clear_plot_buffers()
 
                 filename = (
                     self.logger.start()
@@ -1078,28 +1053,20 @@ class MainWindow(QMainWindow):
                 self._append_console(
                     "PC",
                     (
-                        "RUNNING confirmed. "
-                        "Experiment recording started."
+                        "New experiment started. "
+                        f"CSV: {filename}"
                     ),
                 )
+
+            else:
 
                 self._append_console(
                     "PC",
-                    f"CSV: {filename}",
-                )
-
-            except Exception as exc:
-
-                self._append_console(
-                    "ERROR",
-                    (
-                        "Could not create "
-                        f"experiment CSV: {exc}"
-                    ),
+                    "Experiment resumed.",
                 )
 
         # =============================================
-        # Registro durante RUNNING
+        # Logging
         # =============================================
 
         if (
@@ -1109,69 +1076,100 @@ class MainWindow(QMainWindow):
 
             if self.logger.active:
 
-                try:
-
-                    self.logger.write(
-                        data
-                    )
-
-                except Exception as exc:
-
-                    self._append_console(
-                        "ERROR",
-                        (
-                            "CSV write error: "
-                            f"{exc}"
-                        ),
-                    )
+                self.logger.write(
+                    data
+                )
 
             self._append_plot_sample(
                 data
             )
 
         # =============================================
-        # Salida de RUNNING
+        # RUNNING -> READY
         # =============================================
 
         if (
             previous_state
             == SystemState.RUNNING
             and new_state
-            != SystemState.RUNNING
+            == SystemState.READY
         ):
+
+            if self.finish_pending:
+
+                self.finish_pending = False
+
+                self._finish_experiment(
+                    "Finished by user"
+                )
+
+            elif self.logger.active:
+
+                self._append_console(
+                    "PC",
+                    "Experiment paused.",
+                )
+
+        # =============================================
+        # FAULT
+        # =============================================
+
+        if (
+            previous_state
+            != SystemState.FAULT
+            and new_state
+            == SystemState.FAULT
+        ):
+
+            self.start_pending = False
+
+            self.finish_pending = False
 
             if self.logger.active:
 
-                filename, samples = (
-                    self.logger.stop()
+                self._finish_experiment(
+                    "FAULT"
                 )
-
-                self._append_console(
-                    "PC",
-                    (
-                        "Experiment finished. "
-                        f"{samples} samples saved."
-                    ),
-                )
-
-                self._append_console(
-                    "PC",
-                    f"CSV: {filename}",
-                )
-
-                if (
-                    filename
-                    and samples > 0
-                ):
-
-                    self._show_final_plots(
-                        filename
-                    )
 
         self._update_buttons()
 
     # =================================================
-    # State helpers
+    # Experiment
+    # =================================================
+
+    def _finish_experiment(
+        self,
+        reason,
+    ):
+
+        if not self.logger.active:
+            return
+
+        (
+            filename,
+            samples,
+        ) = self.logger.stop()
+
+        self._append_console(
+            "PC",
+            (
+                f"{reason}. "
+                f"{samples} samples saved."
+            ),
+        )
+
+        if (
+            filename
+            and samples > 0
+        ):
+
+            plot_experiment(
+                filename,
+                block=False,
+            )
+
+    # =================================================
+    # State names
     # =================================================
 
     @staticmethod
@@ -1247,9 +1245,14 @@ class MainWindow(QMainWindow):
     # Buttons
     # =================================================
 
-    def _update_buttons(self):
+    def _update_buttons(
+        self,
+    ):
 
-        if not self.connected:
+        if (
+            not self.connected
+            or self.shutdown_started
+        ):
 
             self.start_button.setEnabled(
                 False
@@ -1259,47 +1262,52 @@ class MainWindow(QMainWindow):
                 False
             )
 
+            self.finish_button.setEnabled(
+                False
+            )
+
             self.estop_button.setEnabled(
                 False
             )
 
             return
 
-        start_enabled = (
-            self.current_state
-            == SystemState.READY
-            and not self.start_pending
-        )
-
-        stop_enabled = (
-            self.current_state
-            == SystemState.RUNNING
-        )
-
         self.start_button.setEnabled(
-            start_enabled
+            (
+                self.current_state
+                == SystemState.READY
+                and not self.start_pending
+                and not self.finish_pending
+            )
         )
 
         self.stop_button.setEnabled(
-            stop_enabled
+            (
+                self.current_state
+                == SystemState.RUNNING
+                and not self.finish_pending
+            )
+        )
+
+        self.finish_button.setEnabled(
+            (
+                self.logger.active
+                and not self.finish_pending
+            )
         )
 
         self.estop_button.setEnabled(
             True
         )
 
-    def _start_clicked(self):
-
-        if not self.connected:
-            return
+    def _start_clicked(
+        self,
+    ):
 
         if (
             self.current_state
             != SystemState.READY
         ):
-            return
-
-        if self.start_pending:
             return
 
         self.start_pending = True
@@ -1310,15 +1318,7 @@ class MainWindow(QMainWindow):
 
         self._append_console(
             "PC",
-            "START command sent (R).",
-        )
-
-        self._append_console(
-            "PC",
-            (
-                "Waiting for ESP32 "
-                "RUNNING confirmation..."
-            ),
+            "START / RESUME sent.",
         )
 
         self._update_buttons()
@@ -1328,7 +1328,9 @@ class MainWindow(QMainWindow):
             self._clear_start_pending,
         )
 
-    def _clear_start_pending(self):
+    def _clear_start_pending(
+        self,
+    ):
 
         if (
             self.current_state
@@ -1339,10 +1341,9 @@ class MainWindow(QMainWindow):
 
         self._update_buttons()
 
-    def _stop_clicked(self):
-
-        if not self.connected:
-            return
+    def _stop_clicked(
+        self,
+    ):
 
         if (
             self.current_state
@@ -1356,10 +1357,49 @@ class MainWindow(QMainWindow):
 
         self._append_console(
             "PC",
-            "STOP command sent (S).",
+            "PAUSE sent.",
         )
 
-    def _estop_clicked(self):
+    def _finish_clicked(
+        self,
+    ):
+
+        if not self.logger.active:
+            return
+
+        if (
+            self.current_state
+            == SystemState.RUNNING
+        ):
+
+            self.finish_pending = True
+
+            self.serial_worker.queue_command(
+                "S"
+            )
+
+            self._append_console(
+                "PC",
+                (
+                    "FINISH requested. "
+                    "Waiting for READY..."
+                ),
+            )
+
+        elif (
+            self.current_state
+            == SystemState.READY
+        ):
+
+            self._finish_experiment(
+                "Finished by user"
+            )
+
+        self._update_buttons()
+
+    def _estop_clicked(
+        self,
+    ):
 
         if not self.connected:
             return
@@ -1372,21 +1412,23 @@ class MainWindow(QMainWindow):
 
         self._append_console(
             "PC",
-            "EMERGENCY STOP command sent (X).",
+            "EMERGENCY STOP sent.",
         )
 
-        self._update_buttons()
-
     # =================================================
-    # Real-time plotting
+    # Plots
     # =================================================
 
-    def _clear_plot_buffers(self):
+    def _clear_plot_buffers(
+        self,
+    ):
 
         self.time_buffer.clear()
 
         self.theta_buffer.clear()
+
         self.x_buffer.clear()
+
         self.u_buffer.clear()
 
         self.theta_curve.setData(
@@ -1443,12 +1485,20 @@ class MainWindow(QMainWindow):
             self.time_buffer.popleft()
 
             self.theta_buffer.popleft()
+
             self.x_buffer.popleft()
+
             self.u_buffer.popleft()
 
-    def _update_plots(self):
+    def _update_plots(
+        self,
+    ):
 
-        if not self.time_buffer:
+        if (
+            self.shutdown_started
+            or not self.time_buffer
+        ):
+
             return
 
         time_data = list(
@@ -1477,39 +1527,91 @@ class MainWindow(QMainWindow):
         )
 
     # =================================================
-    # Final plots
-    # =================================================
-
-    def _show_final_plots(
-        self,
-        filename,
-    ):
-
-        try:
-
-            plot_experiment(
-                filename,
-                block=False,
-            )
-
-        except Exception as exc:
-
-            self._append_console(
-                "ERROR",
-                (
-                    "Error generating final "
-                    f"plots: {exc}"
-                ),
-            )
-
-    # =================================================
-    # Cierre
+    # Shutdown
     # =================================================
 
     def closeEvent(
         self,
         event,
     ):
+        """
+        Cierre limpio.
+
+        MUY IMPORTANTE:
+
+        Aquí NO llamamos:
+
+            serial_worker.stop()
+
+        porque SerialWorker pertenece a otro thread.
+
+        Emitimos shutdown_requested y Qt ejecutará
+        el slot stop() dentro del Serial thread.
+        """
+
+        if self.shutdown_started:
+
+            event.accept()
+
+            return
+
+        self.shutdown_started = True
+
+        # -----------------------------------------
+        # Detener refresco GUI
+        #
+        # Este timer pertenece al GUI thread,
+        # así que sí podemos detenerlo aquí.
+        # -----------------------------------------
+
+        self.plot_timer.stop()
+
+        # -----------------------------------------
+        # Si existe un experimento abierto,
+        # cerramos el CSV.
+        #
+        # Al salir de la aplicación NO abrimos
+        # nuevas gráficas.
+        # -----------------------------------------
+
+        if self.logger.active:
+
+            try:
+
+                (
+                    filename,
+                    samples,
+                ) = self.logger.stop()
+
+                print(
+                    (
+                        "Experiment saved on exit: "
+                        f"{filename} "
+                        f"({samples} samples)"
+                    )
+                )
+
+            except Exception as exc:
+
+                print(
+                    (
+                        "Error closing experiment: "
+                        f"{exc}"
+                    )
+                )
+
+        # -----------------------------------------
+        # Cerrar TODAS las ventanas matplotlib
+        # antes de terminar QApplication.
+        # -----------------------------------------
+
+        close_all_plots()
+
+        # -----------------------------------------
+        # Si estamos controlando físicamente,
+        # SerialWorker intentará mandar S antes
+        # de cerrar el puerto.
+        # -----------------------------------------
 
         send_stop = (
             self.connected
@@ -1517,22 +1619,13 @@ class MainWindow(QMainWindow):
             == SystemState.RUNNING
         )
 
-        try:
+        # -----------------------------------------
+        # Esta SIGNAL cruza correctamente al
+        # SerialWorker thread.
+        # -----------------------------------------
 
-            self.serial_worker.stop(
-                send_stop=send_stop
-            )
-
-        except Exception:
-            pass
-
-        if self.logger.active:
-
-            try:
-
-                self.logger.stop()
-
-            except Exception:
-                pass
+        self.shutdown_requested.emit(
+            send_stop
+        )
 
         event.accept()
