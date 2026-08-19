@@ -15,10 +15,6 @@ BAUDRATE = 115200
 EXPERIMENTS_DIR = 'experiments'
 
 
-# ============================================================
-# CREAR ARCHIVO DE ENSAYO
-# ============================================================
-
 def create_experiment_file():
 
     os.makedirs(
@@ -38,10 +34,6 @@ def create_experiment_file():
     return filename
 
 
-# ============================================================
-# HILO DE TECLADO
-# ============================================================
-
 def keyboard_thread(
     serial_link,
     state
@@ -51,100 +43,60 @@ def keyboard_thread(
 
         command = input().strip().upper()
 
-        # ====================================================
-        # START
-        # ====================================================
-
         if command == "R":
 
             if not state["running"]:
 
-                # Limpiar cualquier telemetría antigua
-                serial_link.ser.reset_input_buffer()
-
-                serial_link.send_command(
-                    "R"
-                )
-
+                serial_link.send_command("R")
                 state["running"] = True
 
                 print()
-                print(
-                    ">>> R enviada al ESP32"
-                )
-
-                print(
-                    ">>> Experimento iniciado"
-                )
-
+                print(">>> R enviada al ESP32")
+                print(">>> Experimento iniciado")
                 print()
-
-        # ====================================================
-        # STOP
-        # ====================================================
 
         elif command == "S":
 
             if state["running"]:
 
-                serial_link.send_command(
-                    "S"
-                )
+                serial_link.send_command("S")
 
                 state["running"] = False
                 state["finished"] = True
 
                 print()
-                print(
-                    ">>> S enviada al ESP32"
-                )
-
-                print(
-                    ">>> Experimento detenido"
-                )
-
+                print(">>> S enviada al ESP32")
+                print(">>> Experimento detenido")
                 print()
 
-        # ====================================================
-        # QUIT
-        # ====================================================
+        elif command == "X":
+
+            serial_link.send_command("X")
+
+            state["running"] = False
+            state["finished"] = True
+
+            print()
+            print(">>> EMERGENCY STOP enviado")
+            print()
 
         elif command == "Q":
 
             if state["running"]:
-
-                serial_link.send_command(
-                    "S"
-                )
+                serial_link.send_command("S")
 
             state["running"] = False
             state["quit"] = True
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
 def main():
-
-    # ========================================================
-    # ABRIR SERIAL
-    # ========================================================
 
     serial_link = SerialLink(
         port=SERIAL_PORT,
         baudrate=BAUDRATE
     )
 
-    # ========================================================
-    # CREAR ARCHIVO
-    # ========================================================
-
     csv_filename = create_experiment_file()
-
-    # ========================================================
-    # ESTADO
-    # ========================================================
 
     state = {
         "running": False,
@@ -152,48 +104,18 @@ def main():
         "quit": False
     }
 
-    # ========================================================
-    # INTERFAZ
-    # ========================================================
-
     print()
-    print(
-        "======================================"
-    )
-
-    print(
-        " SIMPLE INVERTED PENDULUM"
-    )
-
-    print(
-        "======================================"
-    )
-
+    print("======================================")
+    print(" SIMPLE INVERTED PENDULUM")
+    print("======================================")
     print()
-
-    print(
-        "R + ENTER -> iniciar experimento"
-    )
-
-    print(
-        "S + ENTER -> detener y graficar"
-    )
-
-    print(
-        "Q + ENTER -> salir"
-    )
-
+    print("R + ENTER -> iniciar experimento")
+    print("S + ENTER -> detener y graficar")
+    print("X + ENTER -> emergency stop")
+    print("Q + ENTER -> salir")
     print()
-
-    print(
-        f"Datos: {csv_filename}"
-    )
-
+    print(f"Datos: {csv_filename}")
     print()
-
-    # ========================================================
-    # HILO DE TECLADO
-    # ========================================================
 
     thread = threading.Thread(
         target=keyboard_thread,
@@ -206,21 +128,9 @@ def main():
 
     thread.start()
 
-    # ========================================================
-    # CONTADORES
-    # ========================================================
-
     sample_counter = 0
-
-    last_status_time = (
-        time.perf_counter()
-    )
-
+    last_status_time = time.perf_counter()
     last_esp_time = None
-
-    # ========================================================
-    # ADQUISICIÓN
-    # ========================================================
 
     try:
 
@@ -231,13 +141,7 @@ def main():
             buffering=8192
         ) as csv_file:
 
-            writer = csv.writer(
-                csv_file
-            )
-
-            # =================================================
-            # CABECERA CSV
-            # =================================================
+            writer = csv.writer(csv_file)
 
             writer.writerow([
                 'Time',
@@ -246,46 +150,30 @@ def main():
                 'x',
                 'xDotObs',
                 'xDotXActual',
-                'u'
+                'u',
+                'state',
+                'mode'
             ])
 
-            # =================================================
-            # BUCLE PRINCIPAL
-            # =================================================
-
             while not state["quit"]:
-
-                # ---------------------------------------------
-                # Ensayo terminado
-                # ---------------------------------------------
 
                 if state["finished"]:
                     break
 
-                # ---------------------------------------------
-                # Esperando R
-                # ---------------------------------------------
+                message_type, data = serial_link.read_message()
+
+                if message_type is None:
+                    continue
+
+                if message_type == 'message':
+                    print(f"\nESP32: {data}")
+                    continue
+
+                if message_type != 'telemetry':
+                    continue
 
                 if not state["running"]:
-
-                    time.sleep(
-                        0.01
-                    )
-
                     continue
-
-                # ---------------------------------------------
-                # Leer ESP32
-                # ---------------------------------------------
-
-                data = serial_link.read_packet()
-
-                if data is None:
-                    continue
-
-                # ---------------------------------------------
-                # Guardar CSV
-                # ---------------------------------------------
 
                 writer.writerow([
                     data['Time'],
@@ -294,14 +182,12 @@ def main():
                     data['x'],
                     data['xDotObs'],
                     data['xDotXActual'],
-                    data['u']
+                    data['u'],
+                    data['state'],
+                    data['mode']
                 ])
 
                 sample_counter += 1
-
-                # ---------------------------------------------
-                # Detectar saltos temporales
-                # ---------------------------------------------
 
                 if last_esp_time is not None:
 
@@ -311,7 +197,6 @@ def main():
                     )
 
                     if dt < 0:
-
                         print()
                         print(
                             f"AVISO: Time retrocede "
@@ -319,17 +204,9 @@ def main():
                             f"-> {data['Time']:.4f}"
                         )
 
-                last_esp_time = (
-                    data['Time']
-                )
+                last_esp_time = data['Time']
 
-                # ---------------------------------------------
-                # Estado una vez por segundo
-                # ---------------------------------------------
-
-                now = (
-                    time.perf_counter()
-                )
+                now = time.perf_counter()
 
                 if (
                     now
@@ -341,6 +218,8 @@ def main():
                         f"\r"
                         f"Recibiendo... "
                         f"t={data['Time']:.4f} s | "
+                        f"state={data['state']} | "
+                        f"mode={data['mode']} | "
                         f"muestras={sample_counter}",
                         end='',
                         flush=True
@@ -348,15 +227,7 @@ def main():
 
                     last_status_time = now
 
-            # =================================================
-            # FORZAR ESCRITURA FINAL
-            # =================================================
-
             csv_file.flush()
-
-    # ========================================================
-    # CTRL+C
-    # ========================================================
 
     except KeyboardInterrupt:
 
@@ -364,59 +235,33 @@ def main():
         print()
 
         if state["running"]:
+            serial_link.send_command("S")
 
-            serial_link.send_command(
-                "S"
-            )
-
-        print(
-            "Ctrl+C detectado."
-        )
-
-    # ========================================================
-    # CIERRE SERIAL
-    # ========================================================
+        print("Ctrl+C detectado.")
 
     finally:
-
         serial_link.close()
 
-    # ========================================================
-    # RESULTADO
-    # ========================================================
-
     print()
     print()
-
     print(
         f"Ensayo guardado: "
         f"{csv_filename}"
     )
-
     print(
         f"Muestras recibidas: "
         f"{sample_counter}"
     )
 
-    # ========================================================
-    # GRAFICAR
-    # ========================================================
-
     if sample_counter > 0:
 
         print()
-        print(
-            "Generando gráficas..."
-        )
+        print("Generando gráficas...")
 
         plot_experiment(
             csv_filename
         )
 
-
-# ============================================================
-# ENTRY POINT
-# ============================================================
 
 if __name__ == '__main__':
     main()

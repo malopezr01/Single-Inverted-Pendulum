@@ -17,10 +17,12 @@ class SerialLink:
             timeout=timeout
         )
 
-        # El ESP32 puede resetearse al abrir el puerto
-        time.sleep(2.0)
-
+        # Limpiar cualquier byte residual previo al arranque.
         self.ser.reset_input_buffer()
+
+        # El ESP32 puede resetearse al abrir el puerto.
+        # Los mensajes enviados durante esta espera se conservan.
+        time.sleep(2.0)
 
         print(
             f"Puerto serie abierto: "
@@ -33,6 +35,7 @@ class SerialLink:
 
         R -> iniciar
         S -> detener
+        X -> emergency stop
         """
 
         self.ser.write(command.encode())
@@ -42,54 +45,41 @@ class SerialLink:
             f"Comando enviado al ESP32: {command}"
         )
 
-    def read_packet(self):
+    def read_message(self):
         """
-        Espera una línea de telemetría del tipo:
+        Lee una línea del puerto serie.
 
-        Time=12.3456
-        theta=0.0123
-        thetaDot=-0.0456
-        x=0.0345
-        xDotObs=0.0678
-        xDotXActual=0.0654
-        u=0.1234
-
-        Todo en una sola línea.
-
-        Devuelve un diccionario con los valores,
-        o None si la línea no es telemetría válida.
+        Devuelve:
+            ('telemetry', dict) si es una trama válida.
+            ('message', str) para cualquier otro mensaje.
+            (None, None) si no hay datos.
         """
 
         line = self.ser.readline()
 
         if not line:
-            return None
+            return None, None
 
         try:
             line = line.decode(
                 'utf-8',
                 errors='ignore'
             ).strip()
-
         except Exception:
-            return None
+            return None, None
 
         if not line:
-            return None
+            return None, None
 
         try:
-
             values = {}
-
             fields = line.split()
 
             for field in fields:
-
                 if '=' not in field:
                     continue
 
                 key, value = field.split('=', 1)
-
                 values[key] = float(value)
 
             required_fields = [
@@ -99,23 +89,30 @@ class SerialLink:
                 'x',
                 'xDotObs',
                 'xDotXActual',
-                'u'
+                'u',
+                'state',
+                'mode'
             ]
 
+            valid_telemetry = True
+
             for field in required_fields:
-
                 if field not in values:
-                    return None
+                    valid_telemetry = False
+                    break
 
-            return values
+            if valid_telemetry:
+                values['state'] = int(values['state'])
+                values['mode'] = int(values['mode'])
+                return 'telemetry', values
 
         except ValueError:
-            return None
+            pass
+
+        return 'message', line
 
     def close(self):
 
         if self.ser.is_open:
-
             self.ser.close()
-
             print("Puerto serie cerrado.")

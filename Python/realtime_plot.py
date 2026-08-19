@@ -20,9 +20,8 @@ def plot_experiment(filename):
 
     u = []
 
-    # ========================================================
-    # CARGAR CSV
-    # ========================================================
+    state = []
+    mode = []
 
     with open(
         filename,
@@ -61,9 +60,13 @@ def plot_experiment(filename):
                 float(row['u'])
             )
 
-    # ========================================================
-    # COMPROBAR DATOS
-    # ========================================================
+            state.append(
+                int(float(row['state']))
+            )
+
+            mode.append(
+                int(float(row['mode']))
+            )
 
     if len(time_data) == 0:
 
@@ -76,10 +79,6 @@ def plot_experiment(filename):
     print(
         f"Graficando {len(time_data)} muestras..."
     )
-
-    # ========================================================
-    # 1. PÉNDULO
-    # ========================================================
 
     plt.figure()
 
@@ -95,24 +94,11 @@ def plot_experiment(filename):
         label='thetaDot [rad/s]'
     )
 
-    plt.xlabel(
-        'Time [s]'
-    )
-
-    plt.ylabel(
-        'Pendulum state'
-    )
-
-    plt.title(
-        'Pendulum angle and angular velocity'
-    )
-
+    plt.xlabel('Time [s]')
+    plt.ylabel('Pendulum state')
+    plt.title('Pendulum angle and angular velocity')
     plt.grid(True)
     plt.legend()
-
-    # ========================================================
-    # 2. POSICIÓN DEL CARRO
-    # ========================================================
 
     plt.figure()
 
@@ -122,24 +108,11 @@ def plot_experiment(filename):
         label='x [m]'
     )
 
-    plt.xlabel(
-        'Time [s]'
-    )
-
-    plt.ylabel(
-        'Position [m]'
-    )
-
-    plt.title(
-        'Cart position'
-    )
-
+    plt.xlabel('Time [s]')
+    plt.ylabel('Position [m]')
+    plt.title('Cart position')
     plt.grid(True)
     plt.legend()
-
-    # ========================================================
-    # 3. VELOCIDAD DEL CARRO
-    # ========================================================
 
     plt.figure()
 
@@ -155,24 +128,11 @@ def plot_experiment(filename):
         label='xDotXActual [m/s]'
     )
 
-    plt.xlabel(
-        'Time [s]'
-    )
-
-    plt.ylabel(
-        'Velocity [m/s]'
-    )
-
-    plt.title(
-        'Cart velocity comparison'
-    )
-
+    plt.xlabel('Time [s]')
+    plt.ylabel('Velocity [m/s]')
+    plt.title('Cart velocity comparison')
     plt.grid(True)
     plt.legend()
-
-    # ========================================================
-    # 4. CONTROL
-    # ========================================================
 
     plt.figure()
 
@@ -182,23 +142,32 @@ def plot_experiment(filename):
         label='u [m/s²]'
     )
 
-    plt.xlabel(
-        'Time [s]'
-    )
-
-    plt.ylabel(
-        'Control acceleration [m/s²]'
-    )
-
-    plt.title(
-        'Control action'
-    )
-
+    plt.xlabel('Time [s]')
+    plt.ylabel('Control acceleration [m/s²]')
+    plt.title('Control action')
     plt.grid(True)
     plt.legend()
 
-    # ========================================================
-    # MOSTRAR TODAS LAS FIGURAS
-    # ========================================================
+    plt.figure()
+
+    plt.step(
+        time_data,
+        state,
+        where='post',
+        label='SystemState'
+    )
+
+    plt.step(
+        time_data,
+        mode,
+        where='post',
+        label='ControlMode'
+    )
+
+    plt.xlabel('Time [s]')
+    plt.ylabel('State / Mode')
+    plt.title('System state and control mode')
+    plt.grid(True)
+    plt.legend()
 
     plt.show()
