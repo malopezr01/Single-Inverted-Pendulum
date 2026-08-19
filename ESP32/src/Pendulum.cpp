@@ -276,35 +276,107 @@ void Pendulum::emergencyStop()
 
 bool Pendulum::checkSerialCommand()
 {
+    /*
+     * Comandos válidos:
+     *
+     * R -> START
+     * S -> STOP
+     * X -> EMERGENCY STOP
+     *
+     * Sólo se aceptan MAYÚSCULAS.
+     *
+     * Esto es importante porque antes también aceptábamos:
+     *
+     * r
+     * s
+     * x
+     *
+     * y cualquier carácter espurio recibido por Serial
+     * podía provocar una acción accidental.
+     */
+
     if (Serial.available() > 0)
     {
         char command = Serial.read();
+
+        /*
+         * Ignoramos cualquier carácter que no sea
+         * exactamente R, S o X.
+         *
+         * Por tanto:
+         *
+         * 'r' -> ignorado
+         * 'H' -> ignorado
+         * 'o' -> ignorado
+         * '\n' -> ignorado
+         */
+        if (
+            command != 'R' &&
+            command != 'S' &&
+            command != 'X'
+        )
+        {
+            return resume;
+        }
 
         Serial.print("RX command: ");
         Serial.println(command);
 
         switch (command)
         {
-        case 'R':
-        case 'r':
-            if (systemState == SystemState::READY)
-            {
-                Serial.println("R received -> resume = true");
-                resume = true;
-            }
-            break;
+            // =========================================
+            // START
+            // =========================================
 
-        case 'S':
-        case 's':
-            Serial.println("S received -> resume = false");
-            resume = false;
-            break;
+            case 'R':
 
-        case 'X':
-        case 'x':
-            Serial.println("X received -> EMERGENCY STOP");
-            emergencyStop();
-            break;
+                /*
+                 * R sólo tiene efecto cuando el sistema
+                 * está realmente en READY.
+                 *
+                 * Si estamos en HOMING, RUNNING o FAULT
+                 * no hace absolutamente nada.
+                 */
+                if (systemState == SystemState::READY)
+                {
+                    Serial.println(
+                        "R received -> resume = true"
+                    );
+
+                    resume = true;
+                }
+
+                break;
+
+
+            // =========================================
+            // STOP
+            // =========================================
+
+            case 'S':
+
+                Serial.println(
+                    "S received -> resume = false"
+                );
+
+                resume = false;
+
+                break;
+
+
+            // =========================================
+            // EMERGENCY STOP
+            // =========================================
+
+            case 'X':
+
+                Serial.println(
+                    "X received -> EMERGENCY STOP"
+                );
+
+                emergencyStop();
+
+                break;
         }
     }
 
