@@ -11189,9 +11189,9 @@
 			(justify bottom)
 		)
 	)
-	(gr_text_box "Las conexiones del motor estan al reves\nLos divisores de tension de los encoders hay que cambiarlos a colector abierto\nLos conectores de los finales de carrera estan al reves y separados, seria conveniente ponerlo siguiendo el orden los conectores utilizados"
+	(gr_text_box "Las conexiones del motor estan al reves\nLos divisores de tension de los encoders hay que cambiarlos a colector abierto\nLos conectores de los finales de carrera estan al reves y separados, seria conveniente ponerlo siguiendo el orden los conectores utilizados\ncomprobar backfeeding y garantizar EN en HIGH por hardware cuando el ESP32 no esté alimentado."
 		(start 157.75 115)
-		(end 198.5 147)
+		(end 198.5 151.206908)
 		(margins 1.0025 1.0025 1.0025 1.0025)
 		(layer "F.Cu")
 		(uuid "569a6a23-5b78-43e8-91b9-dcf7e43c4b1a")
