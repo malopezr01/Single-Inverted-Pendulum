@@ -111,8 +111,8 @@ private:
     HomingState homingCentro();
 
     // Variables
-    //bool FC1State = false;
-    //bool FC2State = false;
+    // bool FC1State = false;
+    // bool FC2State = false;
     uint64_t homingCycleTime = 0;
     static constexpr uint32_t HOMING_TIMEOUT_MS = 20000; // ms
     static constexpr long HOMING_TOLERANCE = 40;         // microsteps (~1 mm)
@@ -179,16 +179,48 @@ private:
     void updateObserver();
     void updateControl();
     float computeLQR();
-    void setAccelerationPendulum(float a);
-    
+    float computeSwingUp();
+    float setAccelerationPendulum(float a);
+    float sign(float value);
+    float saturate(float value, float limit);
 
     // Variables
     float u = 0.0f;
+    float uApplied = 0.0f;
     float xMax = 0.15f;                                     // Soft cart limit [m]
     float xMaxHard = 0.20f;                                 // Hard cart limit [m]
-    float aMax = 5.0f;                                      // Maximum acceleration [m/s²]
+    static constexpr float aMax = 15.0f;                                      // Maximum acceleration [m/s²]
     static constexpr float THETA_MAX = 10.0f * PI / 180.0f; // [rad]
-    static constexpr float V_MAX = 1.0f;                    // [m/s]
+    static constexpr float V_MAX = 2.0f;                    // [m/s]
+    const float J = 0.0016095;
+    const float ml = 0.0074800;
+    const float g = 9.81;
+    float E = 0.0f;
+    float E0 = 0.01f;
+    float newTheta = 0.0f;
+    float oldTheta = 0.0f;
+    float deltaTheta = 0.0f;
+    static constexpr float k = 80.0f;
+    static constexpr float THETA_LQR_ENTER = 8.0f * PI / 180.0f;
+    static constexpr float THETA_LQR_EXIT = 10.0f * PI / 180.0f;
+    static constexpr float THETADOT_LQR_ENTER = 4.0f;
+    static constexpr float SWING_UP_BOTTOM_THRESHOLD = 5.0f * PI / 180.0f;
+    static constexpr float SWING_UP_KICK_SPEED_THRESHOLD = 0.1f;
+    static constexpr float SWING_UP_START_SPEED = 1.0f; // rad/s
+    static constexpr uint32_t SWING_UP_KICK_MAX_DURATION_MS = 20;
+    static constexpr uint32_t THETADOT_SAMPLE_MS = 30;
+    static constexpr float SWING_UP_KICK_ACCEL = 1.0f;
+    static constexpr float KX_SWING = 7.0f;
+    static constexpr float KV_SWING = 1.0f;
+    float thetaPreviousVelocity = 0.0f;
+    uint32_t thetaVelocityTime = 0;
+    float n = 0.6f;
+    bool swingUpKickActive = false;
+    bool swingUpKickDone = false;
+    uint32_t swingUpKickStart = 0;
+    float thetaDotSwingUp = 0.0f;
+    float thetaDotSwingUpFiltered = 0.0f;
+    float alpha = 0.8f;
 
     // ========================================================================
     // Timing

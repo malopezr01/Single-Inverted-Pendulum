@@ -153,7 +153,6 @@ void Pendulum::initializeObserver()
     eX = 0.0f;
 
     u = 0.0f;
-
 }
 
 void Pendulum::enterReadyState()
@@ -254,10 +253,22 @@ HomingState Pendulum::homingCentro()
         delay(1);
     }
 
-    digitalWrite(EN, HIGH); // Deshabilitar motor
-
     tmc.actualPosition(0);
-    tmc.targetPosition(0);
+    tmc.targetPosition(5000);
+
+    homingCycleTime = millis();
+
+    while (abs(tmc.getSPIPosition() - 5000) > HOMING_TOLERANCE)
+    {
+        if (millis() - homingCycleTime > HOMING_TIMEOUT_MS)
+        {
+            return HomingState::TIMEOUT;
+        }
+
+        delay(1);
+    }
+
+    digitalWrite(EN, HIGH); // Deshabilitar motor
 
     return HomingState::OK;
 }
@@ -313,8 +324,7 @@ bool Pendulum::checkSerialCommand()
         if (
             command != 'R' &&
             command != 'S' &&
-            command != 'X'
-        )
+            command != 'X')
         {
             return resume;
         }
@@ -328,55 +338,50 @@ bool Pendulum::checkSerialCommand()
             // START
             // =========================================
 
-            case 'R':
+        case 'R':
 
-                /*
-                 * R sólo tiene efecto cuando el sistema
-                 * está realmente en READY.
-                 *
-                 * Si estamos en HOMING, RUNNING o FAULT
-                 * no hace absolutamente nada.
-                 */
-                if (systemState == SystemState::READY)
-                {
-                    Serial.println(
-                        "R received -> resume = true"
-                    );
+            /*
+             * R sólo tiene efecto cuando el sistema
+             * está realmente en READY.
+             *
+             * Si estamos en HOMING, RUNNING o FAULT
+             * no hace absolutamente nada.
+             */
+            if (systemState == SystemState::READY)
+            {
+                Serial.println(
+                    "R received -> resume = true");
 
-                    resume = true;
-                }
+                resume = true;
+            }
 
-                break;
-
+            break;
 
             // =========================================
             // STOP
             // =========================================
 
-            case 'S':
+        case 'S':
 
-                Serial.println(
-                    "S received -> resume = false"
-                );
+            Serial.println(
+                "S received -> resume = false");
 
-                resume = false;
+            resume = false;
 
-                break;
-
+            break;
 
             // =========================================
             // EMERGENCY STOP
             // =========================================
 
-            case 'X':
+        case 'X':
 
-                Serial.println(
-                    "X received -> EMERGENCY STOP"
-                );
+            Serial.println(
+                "X received -> EMERGENCY STOP");
 
-                emergencyStop();
+            emergencyStop();
 
-                break;
+            break;
         }
     }
 
@@ -387,11 +392,19 @@ void Pendulum::updateStateMachine()
 {
     switch (systemState)
     {
-        case SystemState::INIT: break;
-        case SystemState::HOMING: break;
-        case SystemState::READY: updateReadyState(); break;
-        case SystemState::RUNNING: updateRunningState(); break;
-        case SystemState::FAULT: updateFaultState(); break;
+    case SystemState::INIT:
+        break;
+    case SystemState::HOMING:
+        break;
+    case SystemState::READY:
+        updateReadyState();
+        break;
+    case SystemState::RUNNING:
+        updateRunningState();
+        break;
+    case SystemState::FAULT:
+        updateFaultState();
+        break;
     }
 }
 
@@ -401,21 +414,33 @@ void Pendulum::updateReadyState()
 
     if (resume)
     {
-        if (fabsf(encoder.getTheta()) >= THETA_MAX)
-        {
-            resume = false;
-            Serial.println("Pendulo fuera del rango de seguridad.");
-            return;
-        }
-
         initializeObserver();
 
         lastCycleTime = micros();
-        controlMode = ControlMode::LQR;
+
+        swingUpKickDone = false;
+        swingUpKickActive = false;
+        swingUpKickStart = 0;
+        thetaDotSwingUp = 0.0f;
+        thetaPreviousVelocity = x0;
+        thetaVelocityTime = millis();
+
+        if (fabsf(encoder.getTheta()) < THETA_MAX)
+        {
+            controlMode = ControlMode::LQR;
+            Serial.println("Starting in LQR mode");
+        }
+        else
+        {
+            oldTheta = x0;
+            controlMode = ControlMode::SWING_UP;
+            Serial.println("Starting in SWING_UP mode");
+        }
+
         systemState = SystemState::RUNNING;
 
         tmc.setSpeed(V_MAX * speedRatio);
-        digitalWrite(EN, LOW); // Enable motor
+        digitalWrite(EN, LOW);
 
         Serial.println("RUNNING");
     }
@@ -431,36 +456,39 @@ void Pendulum::updateRunningState()
         return;
     }
 
-    if (fabsf(encoder.getTheta()) >= THETA_MAX)
-    {
-        tmc.setSpeed(0);
-        resume = false;
-        controlMode = ControlMode::NONE;
-        systemState = SystemState::READY;
-
-        Serial.println("Control fuera de rango de seguridad...");
-        return;
-    }
-
     uint64_t now = micros();
     dt = now - lastCycleTime;
+
     if (dt >= 10000)
     {
         lastCycleTime = now;
-        // At the beginning of cycle k:
-        // x0, x2      -> measurements y_k
-        // u           -> previous control u_(k-1)
-        // xhat        -> previous estimated state
-        //
-        // Observer updates estimate to xhat_k.
-        // Controller then computes and applies u_k.
+
         updateMeasurements();
+
+        // Seleccionar controlador
+        if (controlMode == ControlMode::SWING_UP)
+        {
+            if (fabsf(x0) < THETA_LQR_ENTER &&
+                fabsf(thetaDotSwingUp) < THETADOT_LQR_ENTER)
+            {
+                initializeObserver();
+                controlMode = ControlMode::LQR;
+
+                Serial.println("SWING_UP -> LQR");
+            }
+        }
+        else if (controlMode == ControlMode::LQR)
+        {
+            if (fabsf(x0) > THETA_LQR_EXIT)
+            {
+                controlMode = ControlMode::SWING_UP;
+                oldTheta = x0;
+                Serial.println("LQR -> SWING_UP");
+            }
+        }
+
         updateObserver();
         updateControl();
-    }
-    else
-    {
-        return;
     }
 }
 
@@ -477,6 +505,35 @@ void Pendulum::updateMeasurements()
     x2 = xActual * distanceRatio;
     x3 = (xActual - lastxActual) * distanceRatio / (dt * 1e-6f);
     lastxActual = xActual;
+
+    newTheta = x0;
+    deltaTheta = newTheta - oldTheta;
+
+    uint32_t now = millis();
+
+    if (now - thetaVelocityTime >= THETADOT_SAMPLE_MS)
+    {
+        float deltaThetaVelocity = x0 - thetaPreviousVelocity;
+
+        if (deltaThetaVelocity > PI)
+        {
+            deltaThetaVelocity -= 2.0f * PI;
+        }
+        else if (deltaThetaVelocity < -PI)
+        {
+            deltaThetaVelocity += 2.0f * PI;
+        }
+
+        thetaDotSwingUp =
+            deltaThetaVelocity /
+            ((now - thetaVelocityTime) * 1e-3f);
+
+        thetaPreviousVelocity = x0;
+        thetaVelocityTime = now;
+    }
+
+    oldTheta = newTheta;
+    E = 0.5 * J * thetaDotSwingUp * thetaDotSwingUp + ml * g * (cosf(oldTheta) - 1.0f);
     cuenta += dt * 1e-6f;
 }
 
@@ -506,64 +563,79 @@ void Pendulum::updateControl()
 {
     switch (controlMode)
     {
-        case ControlMode::LQR:
-            u = computeLQR();
-            break;
-        case ControlMode::SWING_UP:
-            //u = computeSwingUp();
-            break;
-        case ControlMode::NONE:
-        default:
-            u = 0.0f;
-            break;          
+    case ControlMode::LQR:
+        u = computeLQR();
+        break;
+    case ControlMode::SWING_UP:
+        u = computeSwingUp();
+        break;
+    case ControlMode::NONE:
+    default:
+        u = 0.0f;
+        break;
     }
 
     // Mandar u al motor
-    setAccelerationPendulum(u);
+    uApplied = setAccelerationPendulum(u);
 }
 
 float Pendulum::computeLQR()
 {
-    return -(K[0] * x0
-           + K[1] * xhat[1]
-           + K[2] * x2
-           + K[3] * xhat[3]);
+    return -(K[0] * x0 + K[1] * xhat[1] + K[2] * x2 + K[3] * xhat[3]);
 }
 
-void Pendulum::setAccelerationPendulum(float a)
+float Pendulum::computeSwingUp()
 {
-  if (a > aMax)
-    a = aMax;
+    float uEnergy =
+        -k * (E - E0) *
+        sign(thetaDotSwingUp * cosf(x0));
 
-  if (a < -aMax)
-    a = -aMax;
+    float uCenter =
+        -KX_SWING * x2
+        -KV_SWING * x3;
 
-  if (fabsf(x2) >= xMaxHard)
-  {
-    tmc.setSpeed(0);
-    systemState = SystemState::READY;
-    resume = false;
-    return;
-  }
+    return saturate(
+        uEnergy + uCenter,
+        n * g
+    );
+}
 
-  if (xhat[3] > 0 &&
-      (x2 + 0.5f * xhat[3] * xhat[3] / aMax > xMax))
-  {
-    a = -aMax;
-  }
-  else if (xhat[3] < 0 &&
-           (x2 - 0.5f * xhat[3] * xhat[3] / aMax < -xMax))
-  {
-    a = aMax;
-  }
+float Pendulum::setAccelerationPendulum(float a)
+{
+    if (a > aMax)
+        a = aMax;
 
-  if (a < 0)
-    tmc.setRampMode(CCW);
-  else
-    tmc.setRampMode(CW);
+    if (a < -aMax)
+        a = -aMax;
 
-  tmc.setAccelerationMax(
-      fabsf(a * accelerationRatio));
+    if (fabsf(x2) >= xMaxHard)
+    {
+        tmc.setSpeed(0);
+        systemState = SystemState::READY;
+        resume = false;
+        return 0.0f;
+    }
+
+    if (x3 > 0 &&
+        (x2 + 0.5f * x3 * x3 / aMax > xMax))
+    {
+        a = -aMax;
+    }
+    else if (x3 < 0 &&
+             (x2 - 0.5f * x3 * x3 / aMax < -xMax))
+    {
+        a = aMax;
+    }
+
+    if (a < 0)
+        tmc.setRampMode(CCW);
+    else
+        tmc.setRampMode(CW);
+
+    tmc.setAccelerationMax(
+        fabsf(a * accelerationRatio));
+
+    return a;
 }
 
 void Pendulum::sendTelemetry()
@@ -581,7 +653,7 @@ void Pendulum::sendTelemetry()
         Serial.print(x0, 4);
 
         Serial.print(" thetaDot=");
-        Serial.print(xhat[1], 4);
+        Serial.print(thetaDotSwingUp, 4);
 
         Serial.print(" x=");
         Serial.print(x2, 4);
@@ -593,7 +665,8 @@ void Pendulum::sendTelemetry()
         Serial.print(x3, 4);
 
         Serial.print(" u=");
-        Serial.print(u, 4);
+        //Serial.print(-k * (E - E0) * sign(thetaDotSwingUp * cosf(x0)), 4);
+        Serial.print(uApplied, 4);
 
         Serial.print(" state=");
         Serial.print(static_cast<int>(systemState));
@@ -601,4 +674,26 @@ void Pendulum::sendTelemetry()
         Serial.print(" mode=");
         Serial.println(static_cast<int>(controlMode));
     }
+}
+
+float Pendulum::saturate(float value, float limit)
+{
+    if (value > limit)
+        return limit;
+
+    if (value < -limit)
+        return -limit;
+
+    return value;
+}
+
+float Pendulum::sign(float value)
+{
+    if (value > 0.0)
+        return 1.0;
+
+    if (value < 0.0)
+        return -1.0;
+
+    return 0.0;
 }
