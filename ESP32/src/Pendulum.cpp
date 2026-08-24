@@ -94,14 +94,14 @@ bool Pendulum::performHoming()
         return false;
     }
 
-    homingState = homingDerecha();
+    /*homingState = homingDerecha();
 
     if (homingState != HomingState::OK)
     {
         Serial.println("Error durante homing derecha.");
         emergencyStop();
         return false;
-    }
+    }*/
 
     homingState = homingCentro();
 
@@ -153,6 +153,7 @@ void Pendulum::initializeObserver()
     eX = 0.0f;
 
     u = 0.0f;
+    observerInitialized = true;
 }
 
 void Pendulum::enterReadyState()
@@ -231,13 +232,14 @@ HomingState Pendulum::homingCentro()
 {
     Serial.println("Calculando centro...");
 
-    const long railPosition = tmc.getSPIPosition();
-    const long centerTarget = railPosition / 2;
+    // const long railPosition = tmc.getSPIPosition();
+    // const long centerTarget = railPosition / 2;
+    const long centerTarget = 11000;
 
     tmc.setRampMode(POS);
     tmc.targetPosition(centerTarget);
     tmc.setAcceleration(500);
-    tmc.setSpeed(5000);
+    tmc.setSpeed(3000);
 
     digitalWrite(EN, LOW); // Habilitar motor
 
@@ -254,11 +256,11 @@ HomingState Pendulum::homingCentro()
     }
 
     tmc.actualPosition(0);
-    tmc.targetPosition(5000);
+    tmc.targetPosition(HOMING_TARGET);
 
     homingCycleTime = millis();
 
-    while (abs(tmc.getSPIPosition() - 5000) > HOMING_TOLERANCE)
+    while (abs(tmc.getSPIPosition() - HOMING_TARGET) > HOMING_TOLERANCE)
     {
         if (millis() - homingCycleTime > HOMING_TIMEOUT_MS)
         {
@@ -432,8 +434,8 @@ void Pendulum::updateReadyState()
         }
         else
         {
-            oldTheta = x0;
             controlMode = ControlMode::SWING_UP;
+            OldSignSwitch = singSwitch;
             Serial.println("Starting in SWING_UP mode");
         }
 
@@ -471,7 +473,7 @@ void Pendulum::updateRunningState()
             if (fabsf(x0) < THETA_LQR_ENTER &&
                 fabsf(thetaDotSwingUp) < THETADOT_LQR_ENTER)
             {
-                initializeObserver();
+                observerInitialized = false;
                 controlMode = ControlMode::LQR;
 
                 Serial.println("SWING_UP -> LQR");
@@ -482,7 +484,7 @@ void Pendulum::updateRunningState()
             if (fabsf(x0) > THETA_LQR_EXIT)
             {
                 controlMode = ControlMode::SWING_UP;
-                oldTheta = x0;
+                OldSignSwitch = singSwitch;
                 Serial.println("LQR -> SWING_UP");
             }
         }
@@ -506,8 +508,8 @@ void Pendulum::updateMeasurements()
     x3 = (xActual - lastxActual) * distanceRatio / (dt * 1e-6f);
     lastxActual = xActual;
 
-    newTheta = x0;
-    deltaTheta = newTheta - oldTheta;
+    // Calcula la velocidad del pendulo por derivada cada 30 ms para el control de swing up.
+    // Para LQR se utiliza la estimación del observador de estados
 
     uint32_t now = millis();
 
@@ -532,31 +534,62 @@ void Pendulum::updateMeasurements()
         thetaVelocityTime = now;
     }
 
-    oldTheta = newTheta;
-    E = 0.5 * J * thetaDotSwingUp * thetaDotSwingUp + ml * g * (cosf(oldTheta) - 1.0f);
+    // E = 0.5 * J * thetaDotSwingUp * thetaDotSwingUp + ml * g * (cosf(x0) - 1.0f);
+    singSwitch = (thetaDotSwingUp * cosf(x0) > SWITCHING_THRESHOLD) ? 1 : (thetaDotSwingUp * cosf(x0) < -SWITCHING_THRESHOLD) ? -1
+                                                                                                                              : singSwitch;
+    energySwitch = (singSwitch != OldSignSwitch) ? true : false;
+    positionReached = fabs(xActual - xTarget) < SWITCHING_TOLERANCE ? true : false;
     cuenta += dt * 1e-6f;
 }
 
 void Pendulum::updateObserver()
 {
-    // Calcular error del observador
-    eTheta = x0 - xhat[0];
-    eX = x2 - xhat[2];
+    if (!observerInitialized)
+    {
+        xActual = tmc.getSPIPosition();
 
-    // Calcular siguiente estado del observador
-    xhat_next[0] = Ad[0][0] * xhat[0] + Ad[0][1] * xhat[1] + Ad[0][2] * xhat[2] + Ad[0][3] * xhat[3] + Bd[0] * u + Lobs[0][0] * eTheta + Lobs[0][1] * eX;
+        x0 = encoder.getTheta();
+        x2 = xActual * distanceRatio;
 
-    xhat_next[1] = Ad[1][0] * xhat[0] + Ad[1][1] * xhat[1] + Ad[1][2] * xhat[2] + Ad[1][3] * xhat[3] + Bd[1] * u + Lobs[1][0] * eTheta + Lobs[1][1] * eX;
+        xhat[0] = x0;
+        xhat[1] = thetaDotSwingUp;
+        xhat[2] = x2;
+        xhat[3] = x3;
 
-    xhat_next[2] = Ad[2][0] * xhat[0] + Ad[2][1] * xhat[1] + Ad[2][2] * xhat[2] + Ad[2][3] * xhat[3] + Bd[2] * u + Lobs[2][0] * eTheta + Lobs[2][1] * eX;
+        xhat_next[0] = xhat[0];
+        xhat_next[1] = xhat[1];
+        xhat_next[2] = xhat[2];
+        xhat_next[3] = xhat[3];
 
-    xhat_next[3] = Ad[3][0] * xhat[0] + Ad[3][1] * xhat[1] + Ad[3][2] * xhat[2] + Ad[3][3] * xhat[3] + Bd[3] * u + Lobs[3][0] * eTheta + Lobs[3][1] * eX;
+        lastxActual = xActual;
 
-    // Actualizar estado del observador
-    xhat[0] = xhat_next[0];
-    xhat[1] = xhat_next[1];
-    xhat[2] = xhat_next[2];
-    xhat[3] = xhat_next[3];
+        eTheta = 0.0f;
+        eX = 0.0f;
+
+        u = 0.0f;
+        observerInitialized = true;
+    }
+    else
+    {
+        // Calcular error del observador
+        eTheta = x0 - xhat[0];
+        eX = x2 - xhat[2];
+
+        // Calcular siguiente estado del observador
+        xhat_next[0] = Ad[0][0] * xhat[0] + Ad[0][1] * xhat[1] + Ad[0][2] * xhat[2] + Ad[0][3] * xhat[3] + Bd[0] * u + Lobs[0][0] * eTheta + Lobs[0][1] * eX;
+
+        xhat_next[1] = Ad[1][0] * xhat[0] + Ad[1][1] * xhat[1] + Ad[1][2] * xhat[2] + Ad[1][3] * xhat[3] + Bd[1] * u + Lobs[1][0] * eTheta + Lobs[1][1] * eX;
+
+        xhat_next[2] = Ad[2][0] * xhat[0] + Ad[2][1] * xhat[1] + Ad[2][2] * xhat[2] + Ad[2][3] * xhat[3] + Bd[2] * u + Lobs[2][0] * eTheta + Lobs[2][1] * eX;
+
+        xhat_next[3] = Ad[3][0] * xhat[0] + Ad[3][1] * xhat[1] + Ad[3][2] * xhat[2] + Ad[3][3] * xhat[3] + Bd[3] * u + Lobs[3][0] * eTheta + Lobs[3][1] * eX;
+
+        // Actualizar estado del observador
+        xhat[0] = xhat_next[0];
+        xhat[1] = xhat_next[1];
+        xhat[2] = xhat_next[2];
+        xhat[3] = xhat_next[3];
+    }
 }
 
 void Pendulum::updateControl()
@@ -574,39 +607,59 @@ void Pendulum::updateControl()
         u = 0.0f;
         break;
     }
-
-    // Mandar u al motor
-    uApplied = setAccelerationPendulum(u);
 }
 
 float Pendulum::computeLQR()
 {
-    return -(K[0] * x0 + K[1] * xhat[1] + K[2] * x2 + K[3] * xhat[3]);
+    uApplied = setAccelerationLQR(-(K[0] * x0 + K[1] * xhat[1] + K[2] * x2 + K[3] * xhat[3]));
+    return uApplied;
 }
 
 float Pendulum::computeSwingUp()
 {
-    float uEnergy =
-        -k * (E - E0) *
-        sign(thetaDotSwingUp * cosf(x0));
+    float a = (singSwitch > 0)
+                  ? +SWING_UP_ACCEL
+                  : -SWING_UP_ACCEL;
 
-    float uCenter =
-        -KX_SWING * x2
-        -KV_SWING * x3;
+    const float brakingDistance =
+        (x3 * x3) / (2.0f * SWING_UP_ACCEL);
 
-    return saturate(
-        uEnergy + uCenter,
-        n * g
-    );
+    bool mustBrakeRight =
+        a > 0.0f &&
+        x3 > 0.0f &&
+        (x2 + brakingDistance >= xMax);
+
+    bool mustBrakeLeft =
+        a < 0.0f &&
+        x3 < 0.0f &&
+        (x2 - brakingDistance <= -xMax);
+
+    if (mustBrakeRight || mustBrakeLeft)
+    {
+        tmc.setSpeed(0);
+        return 0.0f;
+    }
+
+    tmc.setSpeed(V_MAX * speedRatio);
+
+    if (a > 0.0f)
+        tmc.setRampMode(CW);
+    else
+        tmc.setRampMode(CCW);
+
+    tmc.setAcceleration(
+        fabsf(a * accelerationRatio));
+
+    return a;
 }
 
-float Pendulum::setAccelerationPendulum(float a)
+float Pendulum::setAccelerationLQR(float a)
 {
-    if (a > aMax)
-        a = aMax;
+    if (a > A_MAX)
+        a = A_MAX;
 
-    if (a < -aMax)
-        a = -aMax;
+    if (a < -A_MAX)
+        a = -A_MAX;
 
     if (fabsf(x2) >= xMaxHard)
     {
@@ -617,22 +670,25 @@ float Pendulum::setAccelerationPendulum(float a)
     }
 
     if (x3 > 0 &&
-        (x2 + 0.5f * x3 * x3 / aMax > xMax))
+        (x2 + 0.5f * x3 * x3 / A_MAX > xMax))
     {
-        a = -aMax;
+        a = -A_MAX;
     }
     else if (x3 < 0 &&
-             (x2 - 0.5f * x3 * x3 / aMax < -xMax))
+             (x2 - 0.5f * x3 * x3 / A_MAX < -xMax))
     {
-        a = aMax;
+        a = A_MAX;
     }
+
+    // IMPORTANTE: swing-up puede haber dejado speed = 0
+    tmc.setSpeed(V_MAX * speedRatio);
 
     if (a < 0)
         tmc.setRampMode(CCW);
     else
         tmc.setRampMode(CW);
 
-    tmc.setAccelerationMax(
+    tmc.setAcceleration(
         fabsf(a * accelerationRatio));
 
     return a;
@@ -665,8 +721,8 @@ void Pendulum::sendTelemetry()
         Serial.print(x3, 4);
 
         Serial.print(" u=");
-        //Serial.print(-k * (E - E0) * sign(thetaDotSwingUp * cosf(x0)), 4);
-        Serial.print(uApplied, 4);
+        // Serial.print(-k * (E - E0) * sign(thetaDotSwingUp * cosf(x0)), 4);
+        Serial.print(u, 4);
 
         Serial.print(" state=");
         Serial.print(static_cast<int>(systemState));

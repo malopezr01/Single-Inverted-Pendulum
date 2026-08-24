@@ -116,6 +116,8 @@ private:
     uint64_t homingCycleTime = 0;
     static constexpr uint32_t HOMING_TIMEOUT_MS = 20000; // ms
     static constexpr long HOMING_TOLERANCE = 40;         // microsteps (~1 mm)
+    //static constexpr uint32_t HOMING_TARGET = 5000;    
+    static constexpr long HOMING_TARGET = 0;     
 
     // ========================================================================
     // Serial communication
@@ -171,6 +173,7 @@ private:
 
     // Functions
     void initializeObserver();
+    void initializeObserverLQR();
     void updateStateMachine();
     void updateReadyState();
     void updateRunningState();
@@ -180,35 +183,39 @@ private:
     void updateControl();
     float computeLQR();
     float computeSwingUp();
-    float setAccelerationPendulum(float a);
+    float setAccelerationLQR(float a);
     float sign(float value);
     float saturate(float value, float limit);
 
     // Variables
     float u = 0.0f;
     float uApplied = 0.0f;
-    float xMax = 0.15f;                                     // Soft cart limit [m]
-    float xMaxHard = 0.20f;                                 // Hard cart limit [m]
-    static constexpr float aMax = 15.0f;                                      // Maximum acceleration [m/s²]
+    float xMax = 0.15f;     // Soft cart limit [m]
+    float xMaxHard = 0.20f; // Hard cart limit [m]
+    static constexpr float A_MAX = 15.0f;
+    static constexpr float SWING_UP_ACCEL = 5.0f;
     static constexpr float THETA_MAX = 10.0f * PI / 180.0f; // [rad]
     static constexpr float V_MAX = 2.0f;                    // [m/s]
     const float J = 0.0016095;
     const float ml = 0.0074800;
     const float g = 9.81;
     float E = 0.0f;
-    float E0 = 0.01f;
+    float E0 = 0.0f;
     float newTheta = 0.0f;
     float oldTheta = 0.0f;
     float deltaTheta = 0.0f;
+    bool observerInitialized = false;
     static constexpr float k = 80.0f;
     static constexpr float THETA_LQR_ENTER = 8.0f * PI / 180.0f;
-    static constexpr float THETA_LQR_EXIT = 10.0f * PI / 180.0f;
-    static constexpr float THETADOT_LQR_ENTER = 4.0f;
+    static constexpr float THETA_LQR_EXIT = 15.0f * PI / 180.0f;
+    static constexpr float THETADOT_LQR_ENTER = 5.0f;
     static constexpr float SWING_UP_BOTTOM_THRESHOLD = 5.0f * PI / 180.0f;
     static constexpr float SWING_UP_KICK_SPEED_THRESHOLD = 0.1f;
     static constexpr float SWING_UP_START_SPEED = 1.0f; // rad/s
     static constexpr uint32_t SWING_UP_KICK_MAX_DURATION_MS = 20;
-    static constexpr uint32_t THETADOT_SAMPLE_MS = 30;
+    static constexpr uint32_t THETADOT_SAMPLE_MS = 10;
+    static constexpr float SWITCHING_THRESHOLD = 0.01f;
+    static constexpr uint32_t SWITCHING_TOLERANCE = 400; // microsteps (~10 mm)
     static constexpr float SWING_UP_KICK_ACCEL = 1.0f;
     static constexpr float KX_SWING = 7.0f;
     static constexpr float KV_SWING = 1.0f;
@@ -217,6 +224,11 @@ private:
     float n = 0.6f;
     bool swingUpKickActive = false;
     bool swingUpKickDone = false;
+    int32_t xTarget = 5000;
+    int32_t singSwitch = 1;
+    int32_t OldSignSwitch = 1;
+    bool energySwitch = false;
+    bool positionReached = false;
     uint32_t swingUpKickStart = 0;
     float thetaDotSwingUp = 0.0f;
     float thetaDotSwingUpFiltered = 0.0f;
