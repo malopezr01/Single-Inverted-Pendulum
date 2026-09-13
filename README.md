@@ -4,11 +4,21 @@ Physical inverted-pendulum platform designed and built from scratch for experime
 
 > **Project status:** the physical platform is operational. LQR balancing, state estimation and swing-up v1 are working on the real system. Mechanical refinement, energy-based swing-up and learning-based control are the next development stages.
 
+<p align="center">
+  <img src="docs/assets/gifs/swingup_v1.gif" width="560" alt="Swing-up v1 transitioning into LQR balance">
+</p>
+
+<p align="center"><em>Swing-up v1 on the physical platform, followed by automatic capture by the LQR controller.</em></p>
+
 ## Overview
 
 This repository contains the complete development of a real cart-pole inverted pendulum, including the electronics, custom PCB, embedded firmware, control design, experiment tooling and mechanical integration.
 
 The project is intentionally treated as an engineering platform rather than a simulation exercise. The objective is not only to stabilize an ideal model, but to understand and solve the problems that appear when control algorithms are deployed on real hardware: finite rail travel, friction and stiction, sensor limitations, mechanical tolerances, actuator constraints and controller transitions.
+
+<p align="center">
+  <img src="docs/assets/images/system/complete_system_overview.jpg" width="650" alt="Complete inverted pendulum experimental platform">
+</p>
 
 ### Current capabilities
 
@@ -76,7 +86,26 @@ The hardware development includes:
 
 The complete KiCad project, Gerbers and BOM-related files are available in [`PCB/`](PCB/).
 
+### Custom PCB
+
+The controller PCB was designed specifically for the platform and manufactured from the KiCad design files included in this repository.
+
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/assets/images/pcb/pcb_layout.png" alt="KiCad PCB layout"><br><em>PCB layout in KiCad</em></td>
+<td width="50%" align="center"><img src="docs/assets/images/pcb/pcb_fabricated_front.jpg" alt="Fabricated controller PCB"><br><em>Fabricated PCB</em></td>
+</tr>
+</table>
+
+The schematic and both sides of the fabricated board are preserved in [`docs/assets/images/pcb/`](docs/assets/images/pcb/), while the editable design and manufacturing files remain in [`PCB/`](PCB/).
+
+### Mechanical prototype
+
 The current mechanical platform is deliberately treated as a first functional prototype. It is good enough to validate the control architecture, but it also exposes the next engineering tasks: improving pivot friction, encoder coupling, transmission tensioning and repeatability before treating the mechanics as a finished design.
+
+<p align="center">
+  <img src="docs/assets/images/mechanics/pivot_detail.jpg" width="520" alt="Pendulum pivot and encoder coupling detail">
+</p>
 
 ## Control architecture
 
@@ -93,6 +122,10 @@ x = [\theta,\; \dot{\theta},\; x,\; \dot{x}]^T
 and an LQR state-feedback law.
 
 The measured pendulum angle and cart position are combined with a discrete observer to estimate the state variables required by the controller.
+
+<p align="center">
+  <img src="docs/assets/gifs/lqr_balance.gif" width="520" alt="LQR balancing on the physical pendulum">
+</p>
 
 Detailed mathematical derivations are intentionally kept outside this README. The existing control notes can be found in [`Documentation/apuntes_pendulo_invertido_LQR.md`](Documentation/apuntes_pendulo_invertido_LQR.md).
 
@@ -124,20 +157,35 @@ These issues are part of the engineering value of the project and will be docume
 
 ## Experimental results
 
-The control laws are tested on the physical platform rather than validated only in simulation. Current recorded experiments already include pendulum angle and angular velocity, cart position and velocity, control action, controller mode and system state.
+The control laws are tested on the physical platform rather than validated only in simulation. Current recorded experiments include pendulum angle and angular velocity, cart position and velocity, control action, controller mode and system state.
 
-The first public result set will focus on a compact number of plots rather than dumping raw telemetry into the README:
+### Pendulum response
 
-- pendulum response during swing-up and capture;
-- cart position during the maneuver;
-- applied control action;
-- transition between swing-up and LQR.
+<p align="center">
+  <img src="docs/assets/images/experiments/pendulum_state.png" width="760" alt="Pendulum angle and angular velocity during an experiment">
+</p>
 
-More detailed experiment reports will use a consistent structure: **Objective → Hypothesis → Setup → Method → Results → Discussion → Conclusion → Next step**.
+### Cart motion
+
+<p align="center">
+  <img src="docs/assets/images/experiments/cart_position.png" width="760" alt="Cart position during swing-up and balancing">
+</p>
+
+### Control action
+
+<p align="center">
+  <img src="docs/assets/images/experiments/control_action.png" width="760" alt="Applied control action during experiment">
+</p>
+
+These plots are intentionally kept compact in the main README. More detailed experiment reports will use a consistent structure: **Objective → Hypothesis → Setup → Method → Results → Discussion → Conclusion → Next step**.
 
 ## Experiment and telemetry tooling
 
 A Python application is used to interact with the embedded controller and capture experiments.
+
+<p align="center">
+  <img src="docs/assets/images/experiments/python_gui.png" width="780" alt="Python telemetry and experiment GUI">
+</p>
 
 The current toolset includes:
 
@@ -161,6 +209,7 @@ The intention is to evolve it into a lightweight control-experiment scope where 
 ├── Octave/         Control design and LQR tuning scripts
 ├── PCB/            KiCad project, custom libraries and fabrication files
 ├── Documentation/  Mathematical and technical notes
+├── docs/assets/     Public-facing images, plots and animations
 └── README.md
 ```
 
