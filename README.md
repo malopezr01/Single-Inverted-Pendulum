@@ -100,13 +100,11 @@ Detailed mathematical derivations are intentionally kept outside this README. Th
 
 The first swing-up implementation is complete and working on the physical system.
 
-The controller accelerates the cart according to the pendulum motion and includes braking logic based on the available rail distance. Once the pendulum enters the LQR capture region with sufficiently low angular velocity, control automatically transitions to the LQR stabilizer.
+The current version is based on a **bang-bang switching strategy**, which is sufficient to drive the pendulum from the downward position into the LQR capture region. The controller also includes braking logic based on the available rail distance and automatically transitions to the LQR stabilizer once the pendulum enters the capture region with sufficiently low angular velocity.
 
 The inverse transition is also implemented: if the pendulum leaves the LQR operating region, the controller can return to swing-up mode.
 
-Swing-up v1 is currently tuned around a repeatable initial condition and works well when the experiment starts from the defined zero/downward configuration. It is not yet intended to recover optimally from an arbitrary pendulum phase. That limitation is one of the main motivations for the next energy-based swing-up version, where the injected energy will be adjusted according to the actual pendulum state rather than relying primarily on the current switching strategy.
-
-This gives the project a useful engineering baseline: v1 is a working controller, while the next version has a clearly identified performance objective rather than being a rewrite for its own sake.
+The next iteration will incorporate the **pendulum energy** to improve robustness, phase independence and rail usage.
 
 ## Real-world engineering issues
 
@@ -180,11 +178,11 @@ The pendulum is intended as the first platform in a broader personal control-sys
 - [x] Develop the linear model and LQR controller
 - [x] Implement state estimation
 - [x] Validate upright balancing on real hardware
-- [x] Implement swing-up v1
+- [x] Implement swing-up v1 based on bang-bang control
 - [ ] Improve pivot mechanics and reduce stiction
 - [ ] Improve encoder coupling and zero repeatability
 - [ ] Add/improve mechanical transmission tensioning
-- [ ] Develop and validate energy-based swing-up
+- [ ] Develop and validate energy-based swing-up using pendulum energy
 - [ ] Improve recovery from arbitrary pendulum phase
 - [ ] Formalize experimental test documentation
 
