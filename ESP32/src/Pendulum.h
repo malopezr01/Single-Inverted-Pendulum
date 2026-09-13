@@ -116,8 +116,8 @@ private:
     uint64_t homingCycleTime = 0;
     static constexpr uint32_t HOMING_TIMEOUT_MS = 20000; // ms
     static constexpr long HOMING_TOLERANCE = 40;         // microsteps (~1 mm)
-    //static constexpr uint32_t HOMING_TARGET = 5000;    
-    static constexpr long HOMING_TARGET = 0;     
+    //static constexpr uint32_t HOMING_TARGET = 5000;
+    static constexpr long HOMING_TARGET = 0;
 
     // ========================================================================
     // Serial communication
@@ -126,6 +126,7 @@ private:
     // Functions
     bool checkSerialResume();
     bool checkSerialCommand();
+    void sendTelemetryHeader();
     void sendTelemetry();
 
     // Variables
