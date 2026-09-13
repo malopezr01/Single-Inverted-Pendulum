@@ -16,6 +16,11 @@ void Pendulum::begin()
     initializePendulumReference();
     initializeObserver();
 
+    // El HEADER define los nombres y el orden de todas las señales
+    // que aparecerán posteriormente en las tramas DATA. Python puede
+    // descubrir así la telemetría sin tener una lista hardcodeada.
+    sendTelemetryHeader();
+
     enterReadyState();
 }
 
@@ -95,7 +100,7 @@ bool Pendulum::performHoming()
 
     if (homingState != HomingState::OK)
     {
-        Serial.println("Error durante homing izquierda.");
+        Serial.println("ERROR,Error durante homing izquierda.");
         emergencyStop();
         return false;
     }
@@ -104,7 +109,7 @@ bool Pendulum::performHoming()
 
     if (homingState != HomingState::OK)
     {
-        Serial.println("Error durante homing derecha.");
+        Serial.println("ERROR,Error durante homing derecha.");
         emergencyStop();
         return false;
     }
@@ -113,7 +118,7 @@ bool Pendulum::performHoming()
 
     if (homingState != HomingState::OK)
     {
-        Serial.println("Error durante homing centro.");
+        Serial.println("ERROR,Error durante homing centro.");
         emergencyStop();
         return false;
     }
@@ -137,14 +142,14 @@ bool Pendulum::performHoming()
 
 void Pendulum::initializePendulumReference()
 {
-    Serial.println("Definiendo posicion inicial del pendulo...");
+    Serial.println("MSG,Definiendo posicion inicial del pendulo...");
 
     delay(5000);
 
     encoder.actualPosition(2000);
     encoder.setEncoderEnabled(true);
 
-    Serial.println("Posicion inicial del pendulo definida.");
+    Serial.println("MSG,Posicion inicial del pendulo definida.");
 
     delay(1000);
 }
@@ -187,16 +192,16 @@ void Pendulum::enterReadyState()
 
     digitalWrite(EN, HIGH); // Disable Motor
 
-    // READY must start without stale limit-switch events from homing.
     fc.resetF1State();
     fc.resetF2State();
+    // READY must start without stale limit-switch events from homing.
 
-    Serial.println("READY");
+    Serial.println("MSG,READY");
 }
 
 HomingState Pendulum::homingIzquierda()
 {
-    Serial.println(" Homing izquierda...");
+    Serial.println("MSG,Homing izquierda...");
 
     tmc.setRampMode(CCW);
 
@@ -226,7 +231,7 @@ HomingState Pendulum::homingIzquierda()
 
 HomingState Pendulum::homingDerecha()
 {
-    Serial.println("Homing derecha...");
+    Serial.println("MSG,Homing derecha...");
 
     tmc.setRampMode(CW);
     tmc.setAcceleration(500);
@@ -262,7 +267,7 @@ HomingState Pendulum::homingDerecha()
 
 HomingState Pendulum::homingCentro()
 {
-    Serial.println("Calculando centro...");
+    Serial.println("MSG,Calculando centro...");
 
     // const long railPosition = tmc.getSPIPosition();
     // const long centerTarget = railPosition / 2;
@@ -321,7 +326,7 @@ void Pendulum::emergencyStop()
     controlMode = ControlMode::NONE;
     systemState = SystemState::FAULT;
 
-    Serial.println("EMERGENCY STOP - Motor deshabilitado");
+    Serial.println("ERROR,EMERGENCY STOP - Motor deshabilitado");
 }
 
 bool Pendulum::checkSerialCommand()
@@ -368,7 +373,7 @@ bool Pendulum::checkSerialCommand()
             return resume;
         }
 
-        Serial.print("RX command: ");
+        Serial.print("MSG,RX command: ");
         Serial.println(command);
 
         switch (command)
@@ -389,7 +394,7 @@ bool Pendulum::checkSerialCommand()
             if (systemState == SystemState::READY)
             {
                 Serial.println(
-                    "R received -> resume = true");
+                    "MSG,R received -> resume = true");
 
                 resume = true;
             }
@@ -403,7 +408,7 @@ bool Pendulum::checkSerialCommand()
         case 'S':
 
             Serial.println(
-                "S received -> resume = false");
+                "MSG,S received -> resume = false");
 
             resume = false;
 
@@ -416,7 +421,7 @@ bool Pendulum::checkSerialCommand()
         case 'X':
 
             Serial.println(
-                "X received -> EMERGENCY STOP");
+                "MSG,X received -> EMERGENCY STOP");
 
             emergencyStop();
 
@@ -488,13 +493,13 @@ void Pendulum::updateReadyState()
         if (fabsf(encoder.getTheta()) < THETA_MAX)
         {
             controlMode = ControlMode::LQR;
-            Serial.println("Starting in LQR mode");
+            Serial.println("MSG,Starting in LQR mode");
         }
         else
         {
             controlMode = ControlMode::SWING_UP;
             OldSignSwitch = singSwitch;
-            Serial.println("Starting in SWING_UP mode");
+            Serial.println("MSG,Starting in SWING_UP mode");
         }
 
         systemState = SystemState::RUNNING;
@@ -502,7 +507,7 @@ void Pendulum::updateReadyState()
         tmc.setSpeed(V_MAX * speedRatio);
         digitalWrite(EN, LOW);
 
-        Serial.println("RUNNING");
+        Serial.println("MSG,RUNNING");
     }
 }
 
@@ -534,7 +539,7 @@ void Pendulum::updateRunningState()
                 observerInitialized = false;
                 controlMode = ControlMode::LQR;
 
-                Serial.println("SWING_UP -> LQR");
+                Serial.println("EVENT,SWING_UP_TO_LQR");
             }
         }
         else if (controlMode == ControlMode::LQR)
@@ -543,7 +548,7 @@ void Pendulum::updateRunningState()
             {
                 controlMode = ControlMode::SWING_UP;
                 OldSignSwitch = singSwitch;
-                Serial.println("LQR -> SWING_UP");
+                Serial.println("EVENT,LQR_TO_SWING_UP");
             }
         }
 
@@ -777,6 +782,24 @@ float Pendulum::setAccelerationLQR(float a)
     return a;
 }
 
+void Pendulum::sendTelemetryHeader()
+{
+    /*
+     * El HEADER es la única fuente de verdad sobre la estructura
+     * de DATA. Para añadir una señal nueva basta con:
+     *
+     *   1. añadir aquí su nombre;
+     *   2. añadir su valor en sendTelemetry(), en la misma posición.
+     *
+     * El parser Python descubre automáticamente el resto.
+     *
+     * Se mantiene "Time" con mayúscula durante esta fase para que
+     * la GUI actual continúe funcionando sin cambios.
+     */
+    Serial.println(
+        "HEADER,Time,theta,thetaDot,x,xDotObs,xDotXActual,u,state,mode");
+}
+
 void Pendulum::sendTelemetry()
 {
     uint32_t now = millis();
@@ -785,32 +808,46 @@ void Pendulum::sendTelemetry()
     {
         lastTelemetry = now;
 
-        Serial.print("Time=");
+        /*
+         * El orden de los valores debe coincidir exactamente con
+         * sendTelemetryHeader(). Sólo las líneas DATA contienen
+         * muestras numéricas; MSG/EVENT/ERROR quedan separados.
+         */
+        Serial.print("DATA,");
+
+        // Time
         Serial.print(cuenta, 4);
+        Serial.print(",");
 
-        Serial.print(" theta=");
+        // theta
         Serial.print(x0, 4);
+        Serial.print(",");
 
-        Serial.print(" thetaDot=");
+        // thetaDot
         Serial.print(thetaDotSwingUp, 4);
+        Serial.print(",");
 
-        Serial.print(" x=");
+        // x
         Serial.print(x2, 4);
+        Serial.print(",");
 
-        Serial.print(" xDotObs=");
+        // xDotObs
         Serial.print(xhat[3], 4);
+        Serial.print(",");
 
-        Serial.print(" xDotXActual=");
+        // xDotXActual
         Serial.print(x3, 4);
+        Serial.print(",");
 
-        Serial.print(" u=");
-        // Serial.print(-k * (E - E0) * sign(thetaDotSwingUp * cosf(x0)), 4);
+        // u
         Serial.print(u, 4);
+        Serial.print(",");
 
-        Serial.print(" state=");
+        // state
         Serial.print(static_cast<int>(systemState));
+        Serial.print(",");
 
-        Serial.print(" mode=");
+        // mode
         Serial.println(static_cast<int>(controlMode));
     }
 }
