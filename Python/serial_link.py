@@ -10,20 +10,16 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from telemetry_parser import TelemetryParser
+
 
 class SerialLink:
+    """
+    Capa de acceso físico al puerto serie.
 
-    REQUIRED_FIELDS = [
-        "Time",
-        "theta",
-        "thetaDot",
-        "x",
-        "xDotObs",
-        "xDotXActual",
-        "u",
-        "state",
-        "mode",
-    ]
+    No interpreta la telemetría. Sólo abre/cierra el puerto,
+    lee líneas y envía los comandos actuales R/S/X.
+    """
 
     VALID_COMMANDS = {
         "R",
@@ -37,33 +33,19 @@ class SerialLink:
         baudrate=115200,
         timeout=0.02,
     ):
-
         self.port = port
-
         self.baudrate = baudrate
-
         self.timeout = timeout
-
         self.ser = None
-
-        self._serial_lock = (
-            threading.RLock()
-        )
+        self._serial_lock = threading.RLock()
 
     @property
     def is_open(self):
-
         with self._serial_lock:
-
-            return (
-                self.ser is not None
-                and self.ser.is_open
-            )
+            return self.ser is not None and self.ser.is_open
 
     def open(self):
-
         with self._serial_lock:
-
             if self.is_open:
                 return
 
@@ -75,181 +57,79 @@ class SerialLink:
             )
 
             self.ser.reset_input_buffer()
-
             self.ser.reset_output_buffer()
 
-    def send_command(
-        self,
-        command,
-    ):
-
-        command = (
-            command
-            .strip()
-            .upper()
-        )
-
-        if (
-            command
-            not in self.VALID_COMMANDS
-        ):
-
-            raise ValueError(
-                (
-                    "Comando Serial "
-                    f"no válido: {command}"
-                )
-            )
-
+    def read_line(self):
+        """Lee una línea completa sin intentar interpretarla."""
         with self._serial_lock:
-
             if not self.is_open:
+                return None
 
-                raise serial.SerialException(
-                    (
-                        "El puerto Serial "
-                        "no está abierto."
-                    )
-                )
+            raw_line = self.ser.readline()
 
-            self.ser.write(
-                command.encode(
-                    "ascii"
-                )
-            )
-
-            self.ser.flush()
-
-    def read_message(self):
-
-        with self._serial_lock:
-
-            if not self.is_open:
-
-                return (
-                    None,
-                    None,
-                )
-
-            line = (
-                self.ser.readline()
-            )
-
-        if not line:
-
-            return (
-                None,
-                None,
-            )
+        if not raw_line:
+            return None
 
         try:
-
-            line = line.decode(
+            line = raw_line.decode(
                 "utf-8",
                 errors="ignore",
             ).strip()
-
         except Exception:
+            return None
 
-            return (
-                None,
-                None,
-            )
+        return line or None
 
-        if not line:
+    def send_command(self, command):
+        """
+        Mantiene el protocolo PC -> ESP32 existente:
 
-            return (
-                None,
-                None,
-            )
+            R -> START / RESUME
+            S -> STOP / PAUSE
+            X -> EMERGENCY STOP
+        """
+        command = command.strip().upper()
 
-        try:
-
-            values = {}
-
-            fields = line.split()
-
-            for field in fields:
-
-                if "=" not in field:
-                    continue
-
-                key, value = (
-                    field.split(
-                        "=",
-                        1,
-                    )
-                )
-
-                values[key] = float(
-                    value
-                )
-
-            for field in self.REQUIRED_FIELDS:
-
-                if field not in values:
-
-                    return (
-                        "message",
-                        line,
-                    )
-
-            values["state"] = int(
-                values["state"]
-            )
-
-            values["mode"] = int(
-                values["mode"]
-            )
-
-            return (
-                "telemetry",
-                values,
-            )
-
-        except (
-            ValueError,
-            TypeError,
-        ):
-
-            return (
-                "message",
-                line,
-            )
-
-    def close(self):
+        if command not in self.VALID_COMMANDS:
+            raise ValueError(f"Comando Serial no válido: {command}")
 
         with self._serial_lock:
+            if not self.is_open:
+                raise serial.SerialException("El puerto Serial no está abierto.")
 
+            self.ser.write(command.encode("ascii"))
+            self.ser.flush()
+
+    def close(self):
+        with self._serial_lock:
             if self.ser is None:
                 return
 
             if self.ser.is_open:
-
                 self.ser.close()
 
             self.ser = None
 
 
 class SerialWorker(QObject):
+    """
+    Worker de adquisición que vive en su propio QThread.
 
-    telemetry_received = Signal(
-        dict
-    )
+    Flujo:
 
-    message_received = Signal(
-        str
-    )
+        SerialLink -> línea ASCII -> TelemetryParser -> señales Qt
 
-    connection_changed = Signal(
-        bool,
-        str,
-    )
+    No contiene logging, buffers gráficos ni código de GUI.
+    """
 
-    serial_error = Signal(
-        str
-    )
-
+    telemetry_received = Signal(dict)
+    header_received = Signal(list)
+    message_received = Signal(str)
+    event_received = Signal(str)
+    esp_error_received = Signal(str)
+    protocol_error = Signal(str)
+    connection_changed = Signal(bool, str)
+    serial_error = Signal(str)
     finished = Signal()
 
     def __init__(
@@ -257,435 +137,208 @@ class SerialWorker(QObject):
         serial_link,
         parent=None,
     ):
+        super().__init__(parent)
 
-        super().__init__(
-            parent
-        )
-
-        self.serial_link = (
-            serial_link
-        )
+        self.serial_link = serial_link
+        self.parser = TelemetryParser()
 
         self._poll_timer = None
-
         self._startup_timer = None
-
         self._stopping = False
-
         self._finished_emitted = False
 
         self._command_queue = deque()
-
-        self._command_lock = (
-            threading.Lock()
-        )
-
-    # =============================================
-    # START
-    # =============================================
+        self._command_lock = threading.Lock()
 
     @Slot()
     def start(self):
-
         try:
-
+            self.parser.reset()
             self.serial_link.open()
 
             self.connection_changed.emit(
                 True,
-                (
-                    f"{self.serial_link.port} "
-                    f"@ "
-                    f"{self.serial_link.baudrate}"
-                ),
+                f"{self.serial_link.port} @ {self.serial_link.baudrate}",
             )
+            self.message_received.emit("Puerto serie abierto.")
 
-            self.message_received.emit(
-                "Puerto serie abierto."
-            )
-
-            # -------------------------------------
-            # El ESP32 puede resetearse al abrir
-            # el USB.
-            #
-            # QTimer está creado dentro del
-            # SerialWorker thread.
-            # -------------------------------------
-
-            self._startup_timer = QTimer(
-                self
-            )
-
-            self._startup_timer.setSingleShot(
-                True
-            )
-
-            self._startup_timer.timeout.connect(
-                self._begin_polling
-            )
-
-            self._startup_timer.start(
-                2000
-            )
+            # El ESP32 puede resetearse al abrir USB. La espera no
+            # bloquea la GUI porque este objeto vive en otro QThread.
+            self._startup_timer = QTimer(self)
+            self._startup_timer.setSingleShot(True)
+            self._startup_timer.timeout.connect(self._begin_polling)
+            self._startup_timer.start(2000)
 
         except Exception as exc:
-
-            self.connection_changed.emit(
-                False,
-                str(exc),
-            )
-
+            self.connection_changed.emit(False, str(exc))
             self.serial_error.emit(
-                (
-                    "No se pudo abrir "
-                    "el puerto Serial: "
-                    f"{exc}"
-                )
+                f"No se pudo abrir el puerto Serial: {exc}"
             )
-
             self._emit_finished()
-
-    # =============================================
-    # Polling
-    # =============================================
 
     @Slot()
     def _begin_polling(self):
-
         if self._stopping:
             return
 
-        self._poll_timer = QTimer(
-            self
-        )
+        self._poll_timer = QTimer(self)
 
-        self._poll_timer.setInterval(
-            10
-        )
-
-        self._poll_timer.timeout.connect(
-            self._poll_serial
-        )
-
+        # Este timer sólo atiende el puerto serie. La frecuencia de
+        # dibujo se gestionará de forma independiente en la GUI.
+        self._poll_timer.setInterval(5)
+        self._poll_timer.timeout.connect(self._poll_serial)
         self._poll_timer.start()
 
-        self.message_received.emit(
-            "Lectura de telemetría iniciada."
-        )
+        self.message_received.emit("Adquisición serie iniciada.")
 
-    # =============================================
-    # Command queue
-    # =============================================
+    def queue_command(self, command):
+        command = command.strip().upper()
 
-    def queue_command(
-        self,
-        command,
-    ):
-
-        command = (
-            command
-            .strip()
-            .upper()
-        )
-
-        if (
-            command
-            not in SerialLink.VALID_COMMANDS
-        ):
-
+        if command not in SerialLink.VALID_COMMANDS:
             return
 
         with self._command_lock:
-
-            # -------------------------------------
-            # Emergency stop tiene prioridad
-            # absoluta.
-            # -------------------------------------
-
             if command == "X":
-
+                # Emergency stop tiene prioridad absoluta.
                 self._command_queue.clear()
-
-                self._command_queue.appendleft(
-                    "X"
-                )
-
-            # -------------------------------------
-            # STOP elimina cualquier START
-            # pendiente.
-            # -------------------------------------
+                self._command_queue.appendleft("X")
 
             elif command == "S":
-
+                # STOP invalida cualquier START todavía pendiente.
                 self._command_queue = deque(
                     item
-                    for item
-                    in self._command_queue
+                    for item in self._command_queue
                     if item != "R"
                 )
-
-                self._command_queue.appendleft(
-                    "S"
-                )
-
-            # -------------------------------------
-            # Nunca acumulamos varios R.
-            # -------------------------------------
+                self._command_queue.appendleft("S")
 
             elif command == "R":
+                # Nunca acumulamos varios START.
+                if "R" not in self._command_queue:
+                    self._command_queue.append("R")
 
-                if (
-                    "R"
-                    not in self._command_queue
-                ):
-
-                    self._command_queue.append(
-                        "R"
-                    )
-
-    def _get_next_command(
-        self,
-    ):
-
+    def _get_next_command(self):
         with self._command_lock:
-
             if not self._command_queue:
-
                 return None
 
-            return (
-                self._command_queue
-                .popleft()
-            )
-
-    # =============================================
-    # Serial loop
-    # =============================================
+            return self._command_queue.popleft()
 
     @Slot()
     def _poll_serial(self):
-
         if self._stopping:
             return
 
         try:
-
-            # -------------------------------------
-            # TX
-            # -------------------------------------
-
+            # Primero se atienden los comandos pendientes.
             while True:
-
-                command = (
-                    self._get_next_command()
-                )
+                command = self._get_next_command()
 
                 if command is None:
                     break
 
-                self.serial_link.send_command(
-                    command
-                )
+                self.serial_link.send_command(command)
 
-            # -------------------------------------
-            # RX
-            # -------------------------------------
+            # Vaciamos varias líneas por iteración para no ligar la
+            # capacidad de adquisición al periodo del QTimer.
+            for _ in range(100):
+                line = self.serial_link.read_line()
 
-            for _ in range(20):
-
-                (
-                    message_type,
-                    data,
-                ) = (
-                    self.serial_link
-                    .read_message()
-                )
-
-                if message_type is None:
+                if line is None:
                     break
 
-                if (
-                    message_type
-                    == "telemetry"
-                ):
+                frame_type, payload = self.parser.parse(line)
 
-                    self.telemetry_received.emit(
-                        data
-                    )
+                if frame_type is None:
+                    continue
 
-                elif (
-                    message_type
-                    == "message"
-                ):
+                if frame_type == "header":
+                    self.header_received.emit(payload)
 
-                    self.message_received.emit(
-                        data
-                    )
+                elif frame_type == "data":
+                    # La GUI actual sigue recibiendo un dict como antes.
+                    # Con el HEADER actual no se rompe ninguna función.
+                    self.telemetry_received.emit(payload)
+
+                elif frame_type == "message":
+                    self.message_received.emit(payload)
+
+                elif frame_type == "event":
+                    self.event_received.emit(payload)
+
+                elif frame_type == "error":
+                    self.esp_error_received.emit(payload)
+
+                elif frame_type == "protocol_error":
+                    self.protocol_error.emit(payload)
 
         except serial.SerialException as exc:
-
-            self._handle_serial_error(
-                f"Error Serial: {exc}"
-            )
+            self._handle_serial_error(f"Error Serial: {exc}")
 
         except Exception as exc:
-
             self._handle_serial_error(
-                (
-                    "Error inesperado "
-                    f"en Serial: {exc}"
-                )
+                f"Error inesperado en adquisición: {exc}"
             )
 
-    # =============================================
-    # Serial errors
-    # =============================================
-
-    def _handle_serial_error(
-        self,
-        message,
-    ):
-
+    def _handle_serial_error(self, message):
         if self._stopping:
             return
 
-        self.serial_error.emit(
-            message
-        )
-
-        self.connection_changed.emit(
-            False,
-            message,
-        )
+        self.serial_error.emit(message)
+        self.connection_changed.emit(False, message)
 
         self._stop_timers()
 
         try:
-
             self.serial_link.close()
-
         except Exception:
-
             pass
 
         self._emit_finished()
 
-    # =============================================
-    # Timer cleanup
-    # =============================================
-
     def _stop_timers(self):
-        """
-        Este método se ejecuta SIEMPRE dentro
-        del SerialWorker thread.
-
-        Por tanto Qt permite detener los QTimer
-        sin warnings de cross-thread.
-        """
-
-        if (
-            self._startup_timer
-            is not None
-        ):
-
+        """Se ejecuta dentro del thread propietario de los QTimer."""
+        if self._startup_timer is not None:
             self._startup_timer.stop()
-
             self._startup_timer.deleteLater()
-
             self._startup_timer = None
 
-        if (
-            self._poll_timer
-            is not None
-        ):
-
+        if self._poll_timer is not None:
             self._poll_timer.stop()
-
             self._poll_timer.deleteLater()
-
             self._poll_timer = None
 
-    # =============================================
-    # STOP
-    # =============================================
-
     @Slot(bool)
-    def stop(
-        self,
-        send_stop=False,
-    ):
+    def stop(self, send_stop=False):
         """
-        IMPORTANTE:
+        Finalización ordenada del worker.
 
-        Esta función NO debe llamarse directamente
-        desde el GUI thread.
-
-        MainWindow emite una señal conectada a
-        este slot.
-
-        Qt ejecuta entonces este método dentro
-        del thread propietario de SerialWorker.
+        Este slot debe invocarse mediante una señal Qt desde la GUI para
+        que la limpieza de sus timers ocurra en el thread correcto.
         """
-
         if self._stopping:
             return
 
         self._stopping = True
-
-        # -----------------------------------------
-        # Primero detenemos los timers.
-        # -----------------------------------------
-
         self._stop_timers()
 
-        # -----------------------------------------
-        # Si cerramos mientras estamos RUNNING,
-        # intentamos dejar el ESP32 en READY.
-        # -----------------------------------------
-
-        if (
-            send_stop
-            and self.serial_link.is_open
-        ):
-
+        if send_stop and self.serial_link.is_open:
             try:
-
-                self.serial_link.send_command(
-                    "S"
-                )
-
+                self.serial_link.send_command("S")
             except Exception:
-
                 pass
 
-        # -----------------------------------------
-        # Cerrar Serial
-        # -----------------------------------------
-
         try:
-
             self.serial_link.close()
-
         except Exception:
-
             pass
 
-        self.connection_changed.emit(
-            False,
-            "Puerto cerrado",
-        )
-
+        self.connection_changed.emit(False, "Puerto cerrado")
         self._emit_finished()
 
-    # =============================================
-    # Finished
-    # =============================================
-
     def _emit_finished(self):
-
         if self._finished_emitted:
             return
 
         self._finished_emitted = True
-
         self.finished.emit()
