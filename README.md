@@ -17,7 +17,7 @@ This repository contains the complete development of a real cart-pole inverted p
 The project is intentionally treated as an engineering platform rather than a simulation exercise. The objective is not only to stabilize an ideal model, but to understand and solve the problems that appear when control algorithms are deployed on real hardware: finite rail travel, friction and stiction, sensor limitations, mechanical tolerances, actuator constraints and controller transitions.
 
 <p align="center">
-  <img src="docs/assets/images/system/complete_system_overview.jpg" width="650" alt="Complete inverted pendulum experimental platform">
+  <img src="docs/assets/images/system/complete_system_overview.jpeg" width="650" alt="Complete inverted pendulum experimental platform">
 </p>
 
 ### Current capabilities
@@ -93,7 +93,7 @@ The controller PCB was designed specifically for the platform and manufactured f
 <table>
 <tr>
 <td width="50%" align="center"><img src="docs/assets/images/pcb/pcb_layout.png" alt="KiCad PCB layout"><br><em>PCB layout in KiCad</em></td>
-<td width="50%" align="center"><img src="docs/assets/images/pcb/pcb_fabricated_front.jpg" alt="Fabricated controller PCB"><br><em>Fabricated PCB</em></td>
+<td width="50%" align="center"><img src="docs/assets/images/pcb/pcb_fabricated_front.jpeg" alt="Fabricated controller PCB"><br><em>Fabricated PCB</em></td>
 </tr>
 </table>
 
