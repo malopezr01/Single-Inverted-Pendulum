@@ -2,7 +2,7 @@
 
 Physical inverted-pendulum platform designed and built from scratch for experimentation with embedded control, state estimation and data-driven control methods.
 
-> **Project status:** the physical platform is operational. LQR balancing, state estimation and a first swing-up implementation are working on the real system. Mechanical refinement, energy-based swing-up and learning-based control are the next development stages.
+> **Project status:** the physical platform is operational. LQR balancing, state estimation and swing-up v1 are working on the real system. Mechanical refinement, energy-based swing-up and learning-based control are the next development stages.
 
 ## Overview
 
@@ -25,8 +25,8 @@ The project is intentionally treated as an engineering platform rather than a si
 - ✅ Swing-up v1 with automatic transition to LQR
 - ✅ Rail-limit handling during swing-up and balancing
 - ✅ Python GUI, serial telemetry and experiment logging
-- 🔄 Mechanical refinement of the pivot and encoder coupling
-- 🔄 Energy-based swing-up
+- 🔄 Mechanical refinement of the pivot, encoder coupling and transmission tensioning
+- 🔄 Energy-based swing-up for improved phase robustness and rail usage
 - ⏳ Data-driven identification and neural-network control experiments
 
 ## System architecture
@@ -76,7 +76,7 @@ The hardware development includes:
 
 The complete KiCad project, Gerbers and BOM-related files are available in [`PCB/`](PCB/).
 
-> Photos, PCB renders and assembly images will be added here as the public documentation is built.
+The current mechanical platform is deliberately treated as a first functional prototype. It is good enough to validate the control architecture, but it also exposes the next engineering tasks: improving pivot friction, encoder coupling, transmission tensioning and repeatability before treating the mechanics as a finished design.
 
 ## Control architecture
 
@@ -104,7 +104,9 @@ The controller accelerates the cart according to the pendulum motion and include
 
 The inverse transition is also implemented: if the pendulum leaves the LQR operating region, the controller can return to swing-up mode.
 
-This first implementation establishes a functional baseline. Future work will focus on energy-based swing-up, improved rail usage and more systematic tuning.
+Swing-up v1 is currently tuned around a repeatable initial condition and works well when the experiment starts from the defined zero/downward configuration. It is not yet intended to recover optimally from an arbitrary pendulum phase. That limitation is one of the main motivations for the next energy-based swing-up version, where the injected energy will be adjusted according to the actual pendulum state rather than relying primarily on the current switching strategy.
+
+This gives the project a useful engineering baseline: v1 is a working controller, while the next version has a clearly identified performance objective rather than being a rewrite for its own sake.
 
 ## Real-world engineering issues
 
@@ -114,11 +116,26 @@ The current platform has exposed several practical limitations that are being in
 
 - **Pivot friction and stiction.** Small friction around the upright equilibrium can produce a limit-cycle-like behaviour and reduce repeatability.
 - **Finite cart travel.** Swing-up strategies must explicitly account for the limited rail length rather than assuming unlimited cart motion.
+- **Initial-condition sensitivity.** The current swing-up works from the intended experiment start condition but is not yet phase-independent; this directly motivates energy-based control.
 - **Mechanical precision.** Pivot geometry, encoder coupling and zero-position repeatability directly affect control performance.
+- **Transmission tensioning.** The current mechanical transmission will be refined with a dedicated tensioning solution as the platform evolves.
 - **Actuator constraints.** Acceleration, speed and stopping distance must be included in the real controller logic.
 - **Controller transitions.** Moving reliably between swing-up and LQR requires explicit angle and angular-velocity capture conditions.
 
 These issues are part of the engineering value of the project and will be documented through dedicated experiments and mechanical iterations.
+
+## Experimental results
+
+The control laws are tested on the physical platform rather than validated only in simulation. Current recorded experiments already include pendulum angle and angular velocity, cart position and velocity, control action, controller mode and system state.
+
+The first public result set will focus on a compact number of plots rather than dumping raw telemetry into the README:
+
+- pendulum response during swing-up and capture;
+- cart position during the maneuver;
+- applied control action;
+- transition between swing-up and LQR.
+
+More detailed experiment reports will use a consistent structure: **Objective → Hypothesis → Setup → Method → Results → Discussion → Conclusion → Next step**.
 
 ## Experiment and telemetry tooling
 
@@ -166,7 +183,9 @@ The pendulum is intended as the first platform in a broader personal control-sys
 - [x] Implement swing-up v1
 - [ ] Improve pivot mechanics and reduce stiction
 - [ ] Improve encoder coupling and zero repeatability
+- [ ] Add/improve mechanical transmission tensioning
 - [ ] Develop and validate energy-based swing-up
+- [ ] Improve recovery from arbitrary pendulum phase
 - [ ] Formalize experimental test documentation
 
 ### Data-driven control
