@@ -103,9 +103,13 @@ The schematic and both sides of the fabricated board are preserved in [`docs/ass
 
 The current mechanical platform is deliberately treated as a first functional prototype. It is good enough to validate the control architecture, but it also exposes the next engineering tasks: improving pivot friction, encoder coupling, transmission tensioning and repeatability before treating the mechanics as a finished design.
 
-<p align="center">
-  <img src="docs/assets/images/mechanics/pivot_detail.jpg" width="520" alt="Pendulum pivot and encoder coupling detail">
-</p>
+<table>
+<tr>
+<td width="33%" align="center"><img src="docs/assets/images/mechanics/pivot_detail.jpg" alt="Pendulum pivot detail"><br><em>Pivot detail</em></td>
+<td width="33%" align="center"><img src="docs/assets/images/mechanics/motor_detail.jpeg" alt="Stepper motor and transmission detail"><br><em>Motor and transmission</em></td>
+<td width="33%" align="center"><img src="docs/assets/images/mechanics/encoder_detail.jpeg" alt="Pendulum encoder detail"><br><em>Encoder detail</em></td>
+</tr>
+</table>
 
 ## Control architecture
 
