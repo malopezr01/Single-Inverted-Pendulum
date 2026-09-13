@@ -34,19 +34,9 @@ def main():
         "Inverted Pendulum Control"
     )
 
-        # IMPORTANTE:
-    #
-    # No queremos que Qt termine automáticamente
-    # cuando se cierre MainWindow.
-    #
-    # Primero necesitamos:
-    #
-    # 1. cerrar plots matplotlib
-    # 2. pedir al SerialWorker que termine
-    # 3. cerrar Serial
-    # 4. terminar su QThread
-    # 5. entonces cerrar QApplication
-
+    # No queremos que Qt termine automáticamente cuando se cierre
+    # MainWindow. Primero se cierra correctamente el worker serie y
+    # después se abandona QApplication.
     app.setQuitOnLastWindowClosed(
         False
     )
@@ -99,6 +89,33 @@ def main():
         window.handle_message
     )
 
+    # Fase 1 del nuevo protocolo dinámico. La GUI todavía no utiliza
+    # HEADER para construir controles, pero dejamos visible el HEADER
+    # recibido para facilitar la depuración por puerto serie.
+    serial_worker.header_received.connect(
+        lambda signals: window.handle_message(
+            "HEADER: " + ", ".join(signals)
+        )
+    )
+
+    serial_worker.event_received.connect(
+        lambda message: window.handle_message(
+            f"EVENT: {message}"
+        )
+    )
+
+    serial_worker.esp_error_received.connect(
+        lambda message: window.handle_message(
+            f"ERROR: {message}"
+        )
+    )
+
+    serial_worker.protocol_error.connect(
+        lambda message: window.handle_serial_error(
+            f"Protocol error: {message}"
+        )
+    )
+
     serial_worker.connection_changed.connect(
         window.handle_connection_changed
     )
@@ -109,18 +126,11 @@ def main():
 
     # =============================================
     # GUI -> Serial
-    #
-    # MUY IMPORTANTE:
-    #
-    # No llamamos serial_worker.stop() directamente
-    # desde MainWindow.
-    #
-    # MainWindow emite una SIGNAL.
-    #
-    # Como SerialWorker vive en serial_thread,
-    # Qt ejecutará SerialWorker.stop() dentro de
-    # ese thread.
     # =============================================
+    #
+    # MainWindow emite una señal. Como SerialWorker vive en
+    # serial_thread, Qt ejecuta stop() dentro de ese thread y sus
+    # QTimer se destruyen desde el thread correcto.
 
     window.shutdown_requested.connect(
         serial_worker.stop
@@ -134,8 +144,6 @@ def main():
         serial_thread.quit
     )
 
-    # Sólo cuando el thread Serial ha terminado
-    # dejamos terminar QApplication.
     serial_thread.finished.connect(
         app.quit
     )
@@ -152,13 +160,7 @@ def main():
         signum,
         frame,
     ):
-        """
-        Ctrl+C ya no genera KeyboardInterrupt
-        dentro de los callbacks de Qt.
-
-        En su lugar pedimos a Qt que cierre
-        MainWindow normalmente.
-        """
+        """Convierte Ctrl+C en un cierre normal de MainWindow."""
 
         if shutdown_requested["value"]:
             return
@@ -171,10 +173,6 @@ def main():
             "Cerrando aplicación..."
         )
 
-        # No ejecutamos window.close() directamente
-        # dentro del signal handler.
-        #
-        # Lo ponemos en la cola de eventos Qt.
         QTimer.singleShot(
             0,
             window.close,
@@ -185,10 +183,8 @@ def main():
         handle_sigint,
     )
 
-    # =============================================
-    # Timer para procesamiento de señales Python
-    # =============================================
-
+    # Qt ejecuta su propio event loop. Este timer devuelve
+    # periódicamente el control a Python para procesar SIGINT.
     signal_timer = QTimer()
 
     signal_timer.timeout.connect(
@@ -208,14 +204,6 @@ def main():
     serial_thread.start()
 
     exit_code = app.exec()
-
-    # =============================================
-    # Aquí el Serial thread YA debería haber
-    # terminado.
-    #
-    # No llamamos worker.stop() desde aquí porque
-    # sería volver a cruzar threads incorrectamente.
-    # =============================================
 
     serial_thread.wait(
         1500
