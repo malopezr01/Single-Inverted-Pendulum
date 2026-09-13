@@ -126,6 +126,7 @@ private:
     // Functions
     bool checkSerialResume();
     bool checkSerialCommand();
+    void sendTelemetryHeader();
     void sendTelemetry();
 
     // Variables
