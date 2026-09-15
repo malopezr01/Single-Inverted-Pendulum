@@ -76,10 +76,9 @@ void Pendulum::configureMotor()
 
     tmc.init(0.05f, 0.4f, microstepConfig);
 
+    // El motor arranca deshabilitado. Los parámetros de movimiento
+    // se configuran explícitamente en cada rutina de homing/control.
     digitalWrite(EN, HIGH); // Disable motor
-
-    tmc.setAcceleration(300);
-    tmc.setSpeed(1500);
 }
 
 bool Pendulum::performHoming()
@@ -176,7 +175,13 @@ HomingState Pendulum::homingIzquierda()
 {
     Serial.println("MSG,Homing izquierda...");
 
+    // Esta rutina define por sí misma todos los parámetros necesarios.
+    // Es importante porque READY y el comando H dejan speed = 0 antes
+    // de iniciar un nuevo homing.
+    tmc.setAcceleration(300);
+    tmc.setSpeed(1500);
     tmc.setRampMode(CCW);
+
     digitalWrite(EN, LOW); // Habilitar motor
 
     homingCycleTime = millis();
@@ -344,6 +349,10 @@ bool Pendulum::checkSerialCommand()
 
                 resume = false;
                 controlMode = ControlMode::NONE;
+
+                // Dejamos el sistema detenido y desenergizado antes de
+                // entrar al homing. Cada rutina de homing configurará de
+                // nuevo su velocidad, aceleración y sentido antes de EN=LOW.
                 tmc.setSpeed(0);
                 digitalWrite(EN, HIGH);
 
