@@ -99,9 +99,7 @@ def main():
     )
 
     serial_worker.esp_error_received.connect(
-        lambda message: window.handle_message(
-            f"ERROR: {message}"
-        )
+        window.handle_esp_error
     )
 
     serial_worker.protocol_error.connect(
