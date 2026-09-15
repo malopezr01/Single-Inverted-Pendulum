@@ -130,7 +130,6 @@ class SerialWorker(QObject):
 
     RECONNECT_INTERVAL_MS = 1000
     POLL_INTERVAL_MS = 5
-    STARTUP_DELAY_MS = 2000
 
     def __init__(
         self,
@@ -144,7 +143,6 @@ class SerialWorker(QObject):
 
         self._poll_timer = None
         self._reconnect_timer = None
-        self._startup_timer = None
 
         self._stopping = False
         self._finished_emitted = False
@@ -186,27 +184,19 @@ class SerialWorker(QObject):
             return
 
         try:
+            # Cada conexión física empieza con un parser limpio.
+            # La adquisición comienza inmediatamente para no perder el
+            # HEADER que el ESP32 emite durante su secuencia de arranque.
             self.parser.reset()
             self.serial_link.open()
-            self._acquisition_enabled = False
+            self._acquisition_enabled = True
 
             self._emit_connection_state(
                 True,
                 f"{self.serial_link.port} @ {self.serial_link.baudrate}",
             )
             self.message_received.emit("Puerto serie abierto.")
-
-            # Muchos ESP32 se reinician al abrir el USB. Esperamos sin
-            # bloquear el GUI ni vaciar el buffer de entrada, para no
-            # perder HEADER u otros mensajes de arranque.
-            if self._startup_timer is not None:
-                self._startup_timer.stop()
-                self._startup_timer.deleteLater()
-
-            self._startup_timer = QTimer(self)
-            self._startup_timer.setSingleShot(True)
-            self._startup_timer.timeout.connect(self._begin_acquisition)
-            self._startup_timer.start(self.STARTUP_DELAY_MS)
+            self.message_received.emit("Adquisición serie iniciada.")
 
         except (serial.SerialException, OSError) as exc:
             self._acquisition_enabled = False
@@ -221,14 +211,6 @@ class SerialWorker(QObject):
                 False,
                 f"Esperando {self.serial_link.port}: {exc}",
             )
-
-    @Slot()
-    def _begin_acquisition(self):
-        if self._stopping or not self.serial_link.is_open:
-            return
-
-        self._acquisition_enabled = True
-        self.message_received.emit("Adquisición serie iniciada.")
 
     def queue_command(self, command):
         command = command.strip().upper()
@@ -336,9 +318,6 @@ class SerialWorker(QObject):
         self.parser.reset()
         self._clear_commands()
 
-        if self._startup_timer is not None:
-            self._startup_timer.stop()
-
         try:
             self.serial_link.close()
         except Exception:
@@ -351,7 +330,6 @@ class SerialWorker(QObject):
 
     def _stop_timers(self):
         for timer_name in (
-            "_startup_timer",
             "_poll_timer",
             "_reconnect_timer",
         ):
