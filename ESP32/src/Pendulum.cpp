@@ -21,6 +21,7 @@ void Pendulum::begin()
 
 void Pendulum::update()
 {
+    checkLimitSwitchSafety();
     checkSerialCommand();
     updateStateMachine();
     sendTelemetry();
@@ -85,6 +86,11 @@ bool Pendulum::performHoming()
 {
     systemState = SystemState::HOMING;
 
+    // Interrupt flags are event history. Homing uses direct physical reads,
+    // so discard any event left over from a previous operating phase.
+    fc.resetF1State();
+    fc.resetF2State();
+
     homingState = homingIzquierda();
 
     if (homingState != HomingState::OK)
@@ -111,6 +117,20 @@ bool Pendulum::performHoming()
         emergencyStop();
         return false;
     }
+
+    // At the center neither physical limit switch should still be pressed.
+    if (fc.isF1Pressed() || fc.isF2Pressed())
+    {
+        homingState = HomingState::LIMIT_ERROR;
+        Serial.println("ERROR,LIMIT SWITCH STILL PRESSED AFTER HOMING");
+        emergencyStop();
+        return false;
+    }
+
+    // Homing intentionally generates limit-switch interrupts. Do not let
+    // those historical events propagate into the next RUNNING phase.
+    fc.resetF1State();
+    fc.resetF2State();
 
     return true;
 }
@@ -167,6 +187,10 @@ void Pendulum::enterReadyState()
 
     digitalWrite(EN, HIGH); // Disable Motor
 
+    // READY must start without stale limit-switch events from homing.
+    fc.resetF1State();
+    fc.resetF2State();
+
     Serial.println("READY");
 }
 
@@ -175,21 +199,26 @@ HomingState Pendulum::homingIzquierda()
     Serial.println(" Homing izquierda...");
 
     tmc.setRampMode(CCW);
-    digitalWrite(EN, LOW); // Habilitar motor
 
-    homingCycleTime = millis();
-
-    while (!fc.getF2State())
+    // The current electrical state is authoritative during homing.
+    // If F2 is already pressed, do not drive farther into the end stop.
+    if (!fc.isF2Pressed())
     {
-        if (millis() - homingCycleTime > HOMING_TIMEOUT_MS)
+        digitalWrite(EN, LOW); // Habilitar motor
+        homingCycleTime = millis();
+
+        while (!fc.isF2Pressed())
         {
-            return HomingState::TIMEOUT;
+            if (millis() - homingCycleTime > HOMING_TIMEOUT_MS)
+            {
+                digitalWrite(EN, HIGH); // Deshabilitar motor immediately
+                return HomingState::TIMEOUT;
+            }
         }
     }
 
     digitalWrite(EN, HIGH); // Deshabilitar motor
 
-    fc.resetF2State();
     tmc.actualPosition(0);
 
     return HomingState::OK;
@@ -203,27 +232,30 @@ HomingState Pendulum::homingDerecha()
     tmc.setAcceleration(500);
     tmc.setSpeed(5000);
 
-    digitalWrite(EN, LOW); // Habilitar motor
-
-    homingCycleTime = millis();
-
-    while (!fc.getF1State())
+    // The current electrical state is authoritative during homing.
+    // If F1 is already pressed, do not drive farther into the end stop.
+    if (!fc.isF1Pressed())
     {
-        if (millis() - homingCycleTime > HOMING_TIMEOUT_MS)
-        {
-            return HomingState::TIMEOUT;
-        }
+        digitalWrite(EN, LOW); // Habilitar motor
+        homingCycleTime = millis();
 
-        if (tmc.getSPIPosition() > 19000)
+        while (!fc.isF1Pressed())
         {
-            tmc.setAcceleration(300);
-            tmc.setSpeed(1500);
+            if (millis() - homingCycleTime > HOMING_TIMEOUT_MS)
+            {
+                digitalWrite(EN, HIGH); // Deshabilitar motor immediately
+                return HomingState::TIMEOUT;
+            }
+
+            if (tmc.getSPIPosition() > 19000)
+            {
+                tmc.setAcceleration(300);
+                tmc.setSpeed(1500);
+            }
         }
     }
 
     digitalWrite(EN, HIGH); // Deshabilitar motor
-
-    fc.resetF1State();
 
     return HomingState::OK;
 }
@@ -249,6 +281,7 @@ HomingState Pendulum::homingCentro()
     {
         if (millis() - homingCycleTime > HOMING_TIMEOUT_MS)
         {
+            digitalWrite(EN, HIGH); // Deshabilitar motor immediately
             return HomingState::TIMEOUT;
         }
 
@@ -264,6 +297,7 @@ HomingState Pendulum::homingCentro()
     {
         if (millis() - homingCycleTime > HOMING_TIMEOUT_MS)
         {
+            digitalWrite(EN, HIGH); // Deshabilitar motor immediately
             return HomingState::TIMEOUT;
         }
 
@@ -416,6 +450,27 @@ void Pendulum::updateReadyState()
 
     if (resume)
     {
+        // Discard events that occurred while stopped, then verify the actual
+        // electrical state before enabling the motor. This closes the case
+        // where a switch is held LOW and therefore cannot generate a new
+        // FALLING edge after RUNNING starts.
+        fc.resetF1State();
+        fc.resetF2State();
+
+        if (fc.isF1Pressed())
+        {
+            Serial.println("ERROR,LIMIT SWITCH F1 PRESSED BEFORE RUNNING");
+            emergencyStop();
+            return;
+        }
+
+        if (fc.isF2Pressed())
+        {
+            Serial.println("ERROR,LIMIT SWITCH F2 PRESSED BEFORE RUNNING");
+            emergencyStop();
+            return;
+        }
+
         initializeObserver();
 
         lastCycleTime = micros();
@@ -498,6 +553,27 @@ void Pendulum::updateFaultState()
 {
     // FAULT latched.
     // Only reset/reinitialization can leave this state.
+}
+
+void Pendulum::checkLimitSwitchSafety()
+{
+    if (systemState != SystemState::RUNNING)
+    {
+        return;
+    }
+
+    if (fc.getF1State())
+    {
+        Serial.println("ERROR,LIMIT SWITCH F1 TRIGGERED");
+        emergencyStop();
+        return;
+    }
+
+    if (fc.getF2State())
+    {
+        Serial.println("ERROR,LIMIT SWITCH F2 TRIGGERED");
+        emergencyStop();
+    }
 }
 
 void Pendulum::updateMeasurements()
