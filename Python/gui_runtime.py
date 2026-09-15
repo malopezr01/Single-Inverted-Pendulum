@@ -15,6 +15,7 @@ class MainWindow(BaseMainWindow):
 
     def __init__(self, serial_worker, parent=None):
         self.home_pending = False
+        self.known_header = None
         super().__init__(serial_worker, parent)
 
     def _build_ui(self):
@@ -57,11 +58,67 @@ class MainWindow(BaseMainWindow):
         control_layout = self.start_button.parentWidget().layout()
         control_layout.insertWidget(0, self.home_button)
 
+    def handle_header(self, signals):
+        """Muestra el esquema sólo cuando aparece o cambia."""
+        header = tuple(signals)
+
+        if header != self.known_header:
+            self.known_header = header
+            self.handle_message(
+                "HEADER: " + ", ".join(signals)
+            )
+
     def handle_connection_changed(self, connected, description):
         if not connected:
             self.home_pending = False
 
+            # Al perder el enlace dejamos de confiar en el último estado
+            # recibido. Evita que START quede habilitado al reconectar sólo
+            # porque antes de desconectar el ESP32 estaba en READY.
+            self.current_state = None
+            self.current_mode = None
+            self.state_label.setText("---")
+            self.mode_label.setText("---")
+
         super().handle_connection_changed(connected, description)
+
+    def handle_message(self, message):
+        super().handle_message(message)
+
+        # Estas transiciones por MSG son sólo una ayuda de interfaz.
+        # La telemetría DATA sigue siendo la fuente normal del estado.
+        # Sirven para que HOME pueda operar aunque todavía estemos
+        # esperando al primer DATA válido después de conectar.
+        if message == "INIT - Waiting for HOME command":
+            self.current_state = SystemState.INIT
+            self.current_mode = 0
+            self.state_label.setText("INIT")
+            self.mode_label.setText("NONE")
+            self._update_state_style(SystemState.INIT)
+            self._update_buttons()
+
+        elif message == "H received -> starting homing":
+            self.current_state = SystemState.HOMING
+            self.current_mode = 0
+            self.state_label.setText("HOMING")
+            self.mode_label.setText("NONE")
+            self._update_state_style(SystemState.HOMING)
+            self._update_buttons()
+
+        elif message == "READY":
+            self.current_state = SystemState.READY
+            self.current_mode = 0
+            self.home_pending = False
+            self.state_label.setText("READY")
+            self.mode_label.setText("NONE")
+            self._update_state_style(SystemState.READY)
+            self._update_buttons()
+
+        elif message == "RUNNING":
+            self.current_state = SystemState.RUNNING
+            self.state_label.setText("RUNNING")
+            self._update_state_style(SystemState.RUNNING)
+            self._update_buttons()
 
     def handle_telemetry(self, data):
         super().handle_telemetry(data)
@@ -89,13 +146,19 @@ class MainWindow(BaseMainWindow):
             self.home_button.setEnabled(False)
             return
 
-        # HOME sólo es válido donde también lo acepta el firmware.
-        # No permitimos recalibrar dentro de un experimento pausado.
-        self.home_button.setEnabled(
-            self.current_state in {
+        # Si todavía no conocemos el estado tras conectar, permitimos HOME.
+        # Es seguro porque el firmware vuelve a validar H y sólo lo ejecuta
+        # desde INIT o READY. START continúa deshabilitado hasta conocer READY.
+        safe_for_home = (
+            self.current_state is None
+            or self.current_state in {
                 SystemState.INIT,
                 SystemState.READY,
             }
+        )
+
+        self.home_button.setEnabled(
+            safe_for_home
             and not self.logger.active
             and not self.start_pending
             and not self.finish_pending
@@ -104,12 +167,20 @@ class MainWindow(BaseMainWindow):
     def _home_clicked(self):
         if (
             not self.connected
-            or self.current_state
-            not in {
+            or self.logger.active
+            or self.home_pending
+        ):
+            return
+
+        # Con estado conocido sólo aceptamos los mismos estados que firmware.
+        # Con estado todavía desconocido dejamos que firmware haga la última
+        # validación de seguridad del comando H.
+        if (
+            self.current_state is not None
+            and self.current_state not in {
                 SystemState.INIT,
                 SystemState.READY,
             }
-            or self.logger.active
         ):
             return
 
