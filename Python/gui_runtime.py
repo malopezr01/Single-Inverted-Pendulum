@@ -217,9 +217,17 @@ class MainWindow(BaseMainWindow):
             }
         )
 
+        # En READY permitimos HOME incluso si hay un experimento pausado.
+        # Rehacer homing cambia la referencia mecánica, por lo que ese
+        # experimento se cerrará automáticamente antes de enviar H.
+        logger_allows_home = (
+            not self.logger.active
+            or self.current_state == SystemState.READY
+        )
+
         self.home_button.setEnabled(
             safe_for_home
-            and not self.logger.active
+            and logger_allows_home
             and not self.start_pending
             and not self.finish_pending
         )
@@ -228,7 +236,6 @@ class MainWindow(BaseMainWindow):
         if (
             self.fault_latched
             or not self.connected
-            or self.logger.active
             or self.home_pending
         ):
             return
@@ -241,6 +248,17 @@ class MainWindow(BaseMainWindow):
             }
         ):
             return
+
+        # Si estamos en READY tras haber pausado un experimento, HOME debe
+        # ser posible. No continuamos el mismo CSV después del homing porque
+        # la referencia de posición puede haber cambiado: lo cerramos antes.
+        if self.logger.active:
+            if self.current_state != SystemState.READY:
+                return
+
+            self._finish_experiment(
+                "Experiment closed before homing"
+            )
 
         self.home_pending = True
         self.serial_worker.queue_command("H")
