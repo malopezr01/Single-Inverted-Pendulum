@@ -12,9 +12,9 @@ Physical inverted-pendulum platform designed and built from scratch for experime
 
 ## Overview
 
-This repository contains the complete development of a real cart-pole inverted pendulum, including the electronics, custom PCB, embedded firmware, control design, experiment tooling and mechanical integration.
+This repository contains the development of a real cart-pole inverted pendulum, including electronics, custom PCB, embedded firmware, control design, experiment tooling and mechanical integration.
 
-The project is intentionally treated as an engineering platform rather than a simulation exercise. The objective is not only to stabilize an ideal model, but to understand and solve the problems that appear when control algorithms are deployed on real hardware: finite rail travel, friction and stiction, sensor limitations, mechanical tolerances, actuator constraints and controller transitions.
+The project is used as a practical control platform rather than only as a simulation exercise. The main interest is in what changes when the controller is deployed on real hardware: finite rail travel, friction and stiction, sensor limitations, mechanical tolerances, actuator constraints and controller transitions.
 
 <p align="center">
   <img src="docs/assets/images/system/complete_system_overview.jpeg" width="650" alt="Complete inverted pendulum experimental platform">
@@ -22,22 +22,26 @@ The project is intentionally treated as an engineering platform rather than a si
 
 ### Current capabilities
 
-- ✅ Physical cart-pole system built and operational
-- ✅ Custom control electronics and PCB designed in KiCad
-- ✅ PCB manufactured and assembled for the project
-- ✅ ESP32-C3 embedded controller
-- ✅ Stepper motor actuation through TMC5160
-- ✅ Pendulum angle measurement using a quadrature encoder
-- ✅ Automatic cart homing
-- ✅ Linearized state-space model
-- ✅ Discrete state observer
-- ✅ LQR upright stabilization
-- ✅ Swing-up v1 with automatic transition to LQR
-- ✅ Rail-limit handling during swing-up and balancing
-- ✅ Python GUI, serial telemetry and experiment logging
-- 🔄 Mechanical refinement of the pivot, encoder coupling and transmission tensioning
-- 🔄 Energy-based swing-up for improved phase robustness and rail usage
-- ⏳ Data-driven identification and neural-network control experiments
+- Physical cart-pole system built and operational
+- Custom control electronics and PCB designed in KiCad
+- PCB manufactured and assembled for the project
+- ESP32-C3 embedded controller
+- Stepper motor actuation through TMC5160
+- Pendulum angle measurement using a quadrature encoder
+- Automatic cart homing
+- Linearized state-space model
+- Discrete state observer
+- LQR upright stabilization
+- Swing-up v1 with automatic transition to LQR
+- Rail-limit handling during swing-up and balancing
+- Python GUI, serial telemetry and experiment logging
+
+Current work:
+
+- Pivot and encoder mechanics
+- Transmission tensioning
+- Energy-based swing-up
+- Data-driven control experiments
 
 ## System architecture
 
@@ -101,7 +105,7 @@ The schematic and both sides of the fabricated board are preserved in [`docs/ass
 
 ### Mechanical prototype
 
-The current mechanical platform is deliberately treated as a first functional prototype. It is good enough to validate the control architecture, but it also exposes the next engineering tasks: improving pivot friction, encoder coupling, transmission tensioning and repeatability before treating the mechanics as a finished design.
+The current mechanical platform is a first functional prototype. It is good enough to validate the control architecture, but it also makes the next mechanical tasks clear: reducing pivot friction, improving encoder coupling, adding a better transmission tensioning solution and improving repeatability.
 
 <table>
 <tr>
@@ -113,7 +117,7 @@ The current mechanical platform is deliberately treated as a first functional pr
 
 ## Control architecture
 
-The current embedded controller combines different control modes around a common state-machine architecture.
+The embedded controller combines different control modes around a common state-machine architecture.
 
 ### LQR balancing
 
@@ -131,7 +135,7 @@ The measured pendulum angle and cart position are combined with a discrete obser
   <img src="docs/assets/gifs/lqr_balance.gif" width="520" alt="LQR balancing on the physical pendulum">
 </p>
 
-Detailed mathematical derivations are intentionally kept outside this README. The existing control notes can be found in [`Documentation/apuntes_pendulo_invertido_LQR.md`](Documentation/apuntes_pendulo_invertido_LQR.md).
+Detailed mathematical derivations are kept outside this README. The current control notes are available in [`Documentation/apuntes_pendulo_invertido_LQR.md`](Documentation/apuntes_pendulo_invertido_LQR.md).
 
 ### Swing-up v1
 
@@ -145,19 +149,17 @@ The next iteration will incorporate the **pendulum energy** to improve robustnes
 
 ## Real-world engineering issues
 
-A central part of this project is documenting the difference between the ideal mathematical system and the physical plant.
-
-The current platform has exposed several practical limitations that are being investigated rather than hidden:
+The physical system has exposed several limitations that are being investigated as part of the development process:
 
 - **Pivot friction and stiction.** Small friction around the upright equilibrium can produce a limit-cycle-like behaviour and reduce repeatability.
 - **Finite cart travel.** Swing-up strategies must explicitly account for the limited rail length rather than assuming unlimited cart motion.
-- **Initial-condition sensitivity.** The current swing-up works from the intended experiment start condition but is not yet phase-independent; this directly motivates energy-based control.
+- **Initial-condition sensitivity.** The current swing-up works from the intended experiment start condition but is not yet phase-independent; this is one of the reasons for moving to energy-based control.
 - **Mechanical precision.** Pivot geometry, encoder coupling and zero-position repeatability directly affect control performance.
-- **Transmission tensioning.** The current mechanical transmission will be refined with a dedicated tensioning solution as the platform evolves.
-- **Actuator constraints.** Acceleration, speed and stopping distance must be included in the real controller logic.
+- **Transmission tensioning.** The current transmission will be refined with a dedicated tensioning solution.
+- **Actuator constraints.** Acceleration, speed and stopping distance have to be included in the real controller logic.
 - **Controller transitions.** Moving reliably between swing-up and LQR requires explicit angle and angular-velocity capture conditions.
 
-These issues are part of the engineering value of the project and will be documented through dedicated experiments and mechanical iterations.
+These points will be revisited as the mechanics and control strategy evolve.
 
 ## Experimental results
 
@@ -181,7 +183,7 @@ The control laws are tested on the physical platform rather than validated only 
   <img src="docs/assets/images/experiments/control_action.png" width="760" alt="Applied control action during experiment">
 </p>
 
-These plots are intentionally kept compact in the main README. More detailed experiment reports will use a consistent structure: **Objective → Hypothesis → Setup → Method → Results → Discussion → Conclusion → Next step**.
+The main README only shows a compact selection of plots. More detailed experiment reports will use a consistent structure: **Objective → Hypothesis → Setup → Method → Results → Discussion → Conclusion → Next step**.
 
 ## Experiment and telemetry tooling
 
@@ -202,7 +204,7 @@ The current toolset includes:
 
 The application lives in [`Python/`](Python/).
 
-The intention is to evolve it into a lightweight control-experiment scope where new telemetry signals can be added with minimal changes to the Python side.
+The plan is to keep evolving it into a lightweight experiment scope where adding a new telemetry signal requires minimal changes on the Python side.
 
 ## Repository structure
 
@@ -217,11 +219,9 @@ The intention is to evolve it into a lightweight control-experiment scope where 
 └── README.md
 ```
 
-The existing source-code structure will be kept largely intact. Public-facing technical documentation will be added incrementally as experiments and design iterations mature.
+The source-code structure is being kept largely intact. Public-facing documentation will be added as the experiments and design iterations mature.
 
 ## Development roadmap
-
-The pendulum is intended as the first platform in a broader personal control-systems development programme.
 
 ### Current platform
 
@@ -255,8 +255,8 @@ The pendulum is intended as the first platform in a broader personal control-sys
 - [ ] Additional unstable control benchmarks
 - [ ] Experimental platforms combining advanced control, embedded systems and machine learning
 
-## Documentation philosophy
+## Documentation approach
 
-The repository will evolve together with the hardware. Experimental results, failed assumptions, mechanical limitations and redesign decisions will be documented alongside successful controller implementations.
+The repository will evolve together with the hardware. Experimental results, mechanical limitations and redesign decisions will be documented alongside the controller implementations.
 
-The goal is to make the engineering process visible: **model → design → implementation → experiment → problem → diagnosis → improvement**.
+The development path is kept visible: **model → design → implementation → experiment → problem → diagnosis → improvement**.
