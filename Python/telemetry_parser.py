@@ -2,7 +2,7 @@ class TelemetryParser:
     """
     Parser dinámico del protocolo de telemetría.
 
-    Protocolo nuevo ESP32 -> PC:
+    Protocolo ESP32 -> PC:
 
         HEADER,Time,theta,thetaDot,x,u,state
         DATA,0.010,0.002,-0.13,0.001,0.4,3
@@ -14,8 +14,7 @@ class TelemetryParser:
     Los nombres y el orden los define HEADER.
 
     Durante la migración también acepta la telemetría
-    antigua basada en pares key=value para no romper la
-    herramienta antes de actualizar el firmware.
+    antigua basada en pares key=value.
     """
 
     def __init__(self):
@@ -61,14 +60,10 @@ class TelemetryParser:
         if line.startswith("ERROR,"):
             return "error", line[6:]
 
-        # Compatibilidad temporal con el formato antiguo:
-        # Time=... theta=... thetaDot=... etc.
         legacy_data = self._parse_legacy_key_value(line)
         if legacy_data is not None:
             return "data", legacy_data
 
-        # Mensajes antiguos sin prefijo siguen apareciendo
-        # en la consola durante la migración.
         return "message", line
 
     def _parse_header(self, line):
@@ -87,8 +82,12 @@ class TelemetryParser:
         return "header", self.signal_names.copy()
 
     def _parse_data(self, line):
+        # Al conectarnos a un ESP32 que ya estaba funcionando podemos
+        # empezar a recibir DATA antes de ver su siguiente HEADER.
+        # No es un fallo de protocolo útil para el usuario: simplemente
+        # esperamos al HEADER y descartamos esas muestras iniciales.
         if not self.header_received:
-            return "protocol_error", "DATA recibido antes de HEADER."
+            return None, None
 
         raw_values = line.split(",")[1:]
 
