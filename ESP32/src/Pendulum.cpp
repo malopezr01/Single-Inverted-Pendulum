@@ -4,24 +4,20 @@ void Pendulum::begin()
 {
     systemState = SystemState::INIT;
     controlMode = ControlMode::NONE;
+    resume = false;
 
     initializeHardware();
     configureMotor();
 
-    if (!performHoming())
-    {
-        return;
-    }
+    // El sistema arranca siempre inmóvil. El homing sólo se ejecuta
+    // cuando el usuario envía explícitamente el comando H.
+    digitalWrite(EN, HIGH);
 
-    initializePendulumReference();
-    initializeObserver();
-
-    // El HEADER define los nombres y el orden de todas las señales
-    // que aparecerán posteriormente en las tramas DATA. Python puede
-    // descubrir así la telemetría sin tener una lista hardcodeada.
+    // Publicamos el esquema de telemetría desde INIT para que el PC
+    // pueda interpretar DATA incluso antes de realizar el homing.
     sendTelemetryHeader();
 
-    enterReadyState();
+    Serial.println("MSG,INIT - Waiting for HOME command");
 }
 
 void Pendulum::update()
@@ -183,7 +179,8 @@ void Pendulum::initializeObserver()
 
 void Pendulum::enterReadyState()
 {
-    homingState = HomingState::OK;
+    // La validez del homing la decide performHoming(). Esta función
+    // únicamente realiza la transición segura hacia READY.
     systemState = SystemState::READY;
     controlMode = ControlMode::NONE;
 
@@ -334,38 +331,21 @@ bool Pendulum::checkSerialCommand()
     /*
      * Comandos válidos:
      *
-     * R -> START
-     * S -> STOP
+     * H -> HOME
+     * R -> START / RESUME
+     * S -> STOP / PAUSE
      * X -> EMERGENCY STOP
      *
      * Sólo se aceptan MAYÚSCULAS.
-     *
-     * Esto es importante porque antes también aceptábamos:
-     *
-     * r
-     * s
-     * x
-     *
-     * y cualquier carácter espurio recibido por Serial
-     * podía provocar una acción accidental.
      */
 
     if (Serial.available() > 0)
     {
         char command = Serial.read();
 
-        /*
-         * Ignoramos cualquier carácter que no sea
-         * exactamente R, S o X.
-         *
-         * Por tanto:
-         *
-         * 'r' -> ignorado
-         * 'H' -> ignorado
-         * 'o' -> ignorado
-         * '\n' -> ignorado
-         */
+        // Cualquier carácter distinto de H/R/S/X se ignora.
         if (
+            command != 'H' &&
             command != 'R' &&
             command != 'S' &&
             command != 'X')
@@ -379,6 +359,49 @@ bool Pendulum::checkSerialCommand()
         switch (command)
         {
             // =========================================
+            // HOME
+            // =========================================
+
+        case 'H':
+
+            /*
+             * H sólo se admite desde estados seguros:
+             *
+             * INIT  -> primer homing después del arranque.
+             * READY -> recalibración voluntaria.
+             *
+             * En RUNNING, HOMING o FAULT no tiene efecto.
+             */
+            if (
+                systemState == SystemState::INIT ||
+                systemState == SystemState::READY)
+            {
+                Serial.println(
+                    "MSG,H received -> starting homing");
+
+                resume = false;
+                controlMode = ControlMode::NONE;
+                tmc.setSpeed(0);
+                digitalWrite(EN, HIGH);
+
+                if (!performHoming())
+                {
+                    return resume;
+                }
+
+                initializePendulumReference();
+                initializeObserver();
+                enterReadyState();
+            }
+            else
+            {
+                Serial.println(
+                    "MSG,H ignored - system not in INIT or READY");
+            }
+
+            break;
+
+            // =========================================
             // START
             // =========================================
 
@@ -388,7 +411,7 @@ bool Pendulum::checkSerialCommand()
              * R sólo tiene efecto cuando el sistema
              * está realmente en READY.
              *
-             * Si estamos en HOMING, RUNNING o FAULT
+             * Si estamos en INIT, HOMING, RUNNING o FAULT
              * no hace absolutamente nada.
              */
             if (systemState == SystemState::READY)
