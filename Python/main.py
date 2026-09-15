@@ -89,9 +89,7 @@ def main():
     )
 
     serial_worker.header_received.connect(
-        lambda signals: window.handle_message(
-            "HEADER: " + ", ".join(signals)
-        )
+        window.handle_header
     )
 
     serial_worker.event_received.connect(
