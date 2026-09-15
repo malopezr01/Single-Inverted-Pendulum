@@ -8,7 +8,7 @@ from PySide6.QtCore import (
 
 from PySide6.QtWidgets import QApplication
 
-from gui import MainWindow
+from gui_runtime import MainWindow
 
 from serial_link import (
     SerialLink,
@@ -34,9 +34,8 @@ def main():
         "Inverted Pendulum Control"
     )
 
-    # No queremos que Qt termine automáticamente cuando se cierre
-    # MainWindow. Primero se cierra correctamente el worker serie y
-    # después se abandona QApplication.
+    # El cierre de la aplicación lo controla el shutdown ordenado del
+    # worker serie, no la presencia o ausencia del ESP32.
     app.setQuitOnLastWindowClosed(
         False
     )
@@ -89,9 +88,6 @@ def main():
         window.handle_message
     )
 
-    # Fase 1 del nuevo protocolo dinámico. La GUI todavía no utiliza
-    # HEADER para construir controles, pero dejamos visible el HEADER
-    # recibido para facilitar la depuración por puerto serie.
     serial_worker.header_received.connect(
         lambda signals: window.handle_message(
             "HEADER: " + ", ".join(signals)
@@ -127,10 +123,6 @@ def main():
     # =============================================
     # GUI -> Serial
     # =============================================
-    #
-    # MainWindow emite una señal. Como SerialWorker vive en
-    # serial_thread, Qt ejecuta stop() dentro de ese thread y sus
-    # QTimer se destruyen desde el thread correcto.
 
     window.shutdown_requested.connect(
         serial_worker.stop
@@ -183,8 +175,6 @@ def main():
         handle_sigint,
     )
 
-    # Qt ejecuta su propio event loop. Este timer devuelve
-    # periódicamente el control a Python para procesar SIGINT.
     signal_timer = QTimer()
 
     signal_timer.timeout.connect(
