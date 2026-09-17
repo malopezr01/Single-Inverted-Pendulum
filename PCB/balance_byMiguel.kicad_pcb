@@ -11189,12 +11189,33 @@
 			(justify bottom)
 		)
 	)
-	(gr_text_box "Las conexiones del motor estan al reves\nLos divisores de tension de los encoders hay que cambiarlos a colector abierto\nLos conectores de los finales de carrera estan al reves y separados, seria conveniente ponerlo siguiendo el orden los conectores utilizados\ncomprobar backfeeding y garantizar EN en HIGH por hardware cuando el ESP32 no esté alimentado."
+	(gr_text_box "Las conexiones del motor estan al reves\nLos divisores de tension de los encoders hay que cambiarlos a colector abierto\nLos conectores de los finales de carrera estan al reves y separados, seria conveniente ponerlo siguiendo el orden los conectores utilizados\ncomprobar backfeeding y garantizar EN en HIGH por hardware cuando el ESP32 no esté alimentado. Esto es un problema real porque durante la carga sobre todo si ha habido parada de emergencia el carro se mueve a la derecha. ChatGpt sugiere esta solucion"
 		(start 157.75 115)
-		(end 198.5 151.206908)
+		(end 198.5 163.281488)
 		(margins 1.0025 1.0025 1.0025 1.0025)
 		(layer "F.Cu")
 		(uuid "569a6a23-5b78-43e8-91b9-dcf7e43c4b1a")
+		(effects
+			(font
+				(size 1.5 1.5)
+				(thickness 0.3)
+				(bold yes)
+			)
+			(justify left top)
+		)
+		(border yes)
+		(stroke
+			(width 0.2)
+			(type solid)
+		)
+		(knockout no)
+	)
+	(gr_text_box "Protección de ENABLE del TMC5160 durante reset/boot del ESP32-C3\n\nProblema:\nDurante la carga de firmware o reset, GPIO10 del ESP32-C3 queda temporalmente en alta impedancia.\nEl pin EN/DRV_ENN del TMC5160 es activo en LOW, por lo que puede quedar habilitado antes de que arranque el firmware.\n\nSolución:\nAñadir una resistencia pull-up de 10 kΩ entre EN/DRV_ENN y 3.3 V.\n\nEsquema:\n\n3.3 V\n  |\n  10 kΩ\n  |\n  +---- EN / DRV_ENN TMC5160\n  |\nGPIO10 ESP32-C3\n\nFuncionamiento:\n- Durante reset/boot: pull-up fuerza EN = HIGH → driver deshabilitado.\n- Durante funcionamiento: GPIO10 puede poner EN = LOW → driver habilitado.\n- En emergency stop: GPIO10 pone EN = HIGH → motor deshabilitado.\n\nMantener también en software:\ndigitalWrite(EN, HIGH) durante inicialización."
+		(start 204.125 116)
+		(end 244.875 224.654388)
+		(margins 1.0025 1.0025 1.0025 1.0025)
+		(layer "F.Cu")
+		(uuid "f88eaa01-55ce-4da2-a42c-bc0b62582528")
 		(effects
 			(font
 				(size 1.5 1.5)
