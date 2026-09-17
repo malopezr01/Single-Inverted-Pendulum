@@ -14,7 +14,9 @@ void TMC::begin(uint8_t sck_, uint8_t  mosi_, uint8_t  miso_, uint8_t cs_, uint8
   pinMode(cs, OUTPUT);
   pinMode(en, OUTPUT);
   digitalWrite(cs, HIGH);
-  digitalWrite(en, LOW);
+  // Keep the power stage disabled while SPI and driver registers are initialized.
+  // EN is active-low, so HIGH is the safe boot state.
+  digitalWrite(en, HIGH);
   SPI.begin(sck, miso, mosi);
   SPI.setDataMode(SPI_MODE0);
 }

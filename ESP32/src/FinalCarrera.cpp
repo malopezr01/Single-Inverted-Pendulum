@@ -6,14 +6,14 @@
 #include <FinalCarrera.h>
 void FinalCarrera::begin(uint8_t pinA, uint8_t pinB) {
   F1 = pinA; // Store pin numbers for channel A and B
-  F2 = pinB; 
+  F2 = pinB;
   pinMode(F1, INPUT_PULLUP); // Set channel A pin as input with pull-up resistor
   pinMode(F2, INPUT_PULLUP); // Set channel B pin as input with pull-up resistor
   F1State = (digitalRead(F1) == LOW);
   F2State = (digitalRead(F2) == LOW);
   // Attach interrupts for both channels to handle changes in state
-  attachInterruptArg(digitalPinToInterrupt(F1), handleInterruptF1, this, FALLING); 
-  attachInterruptArg(digitalPinToInterrupt(F2), handleInterruptF2, this, FALLING); 
+  attachInterruptArg(digitalPinToInterrupt(F1), handleInterruptF1, this, FALLING);
+  attachInterruptArg(digitalPinToInterrupt(F2), handleInterruptF2, this, FALLING);
 }
 
 void FinalCarrera::setFinalCarreraEnabled(bool enabled) {
@@ -57,4 +57,14 @@ void FinalCarrera::resetF1State()
 void FinalCarrera::resetF2State()
 {
   F2State = false;
+}
+
+bool FinalCarrera::isF1Pressed()
+{
+  return digitalRead(F1) == LOW;
+}
+
+bool FinalCarrera::isF2Pressed()
+{
+  return digitalRead(F2) == LOW;
 }

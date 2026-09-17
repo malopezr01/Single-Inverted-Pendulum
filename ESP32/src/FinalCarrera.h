@@ -7,8 +7,8 @@ class FinalCarrera {
   private:
     uint8_t F1; // Pin for Final Carrera 1
     uint8_t F2; // Pin for Final Carrera 2
-    volatile bool F1State; // State of FinalCarrera1
-    volatile bool F2State; // State of FinalCarrera2
+    volatile bool F1State; // Latched event from FinalCarrera1 interrupt
+    volatile bool F2State; // Latched event from FinalCarrera2 interrupt
     volatile uint32_t F1ChangeTime = 0;
     volatile uint32_t F2ChangeTime = 0;
     volatile bool F1Pending = false;
@@ -18,8 +18,10 @@ class FinalCarrera {
   public:
     void begin(uint8_t pinA, uint8_t pinB); // Initialize the FinalCarrera with specified pins
     void setFinalCarreraEnabled(bool enabled); // Enable/Disable the interrupts for the FinalCarrera
-    bool getF1State(); // Return the state of the FC1
-    void resetF1State(); // Reset the state of the FC1
-    bool getF2State(); // Return the state of the FC2
-    void resetF2State(); // Reset the state of the FC2
+    bool getF1State(); // Return the latched interrupt event of FC1
+    void resetF1State(); // Reset the latched event of FC1
+    bool getF2State(); // Return the latched interrupt event of FC2
+    void resetF2State(); // Reset the latched event of FC2
+    bool isF1Pressed(); // Return the current physical state of FC1
+    bool isF2Pressed(); // Return the current physical state of FC2
 };
