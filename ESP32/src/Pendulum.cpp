@@ -100,14 +100,14 @@ bool Pendulum::performHoming()
         return false;
     }
 
-    /*homingState = homingDerecha();
+    homingState = homingDerecha();
 
     if (homingState != HomingState::OK)
     {
         Serial.println("Error durante homing derecha.");
         emergencyStop();
         return false;
-    }*/
+    }
 
     homingState = homingCentro();
 
