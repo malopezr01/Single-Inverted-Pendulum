@@ -613,7 +613,7 @@ void Pendulum::updateMeasurements()
         thetaVelocityTime = now;
     }
 
-    // E = 0.5 * J * thetaDotSwingUp * thetaDotSwingUp + ml * g * (cosf(x0) - 1.0f);
+    E = 0.5 * J * thetaDotSwingUp * thetaDotSwingUp + ml * g * (cosf(x0) - 1.0f);
     singSwitch = (thetaDotSwingUp * cosf(x0) > SWITCHING_THRESHOLD) ? 1 : (thetaDotSwingUp * cosf(x0) < -SWITCHING_THRESHOLD) ? -1
                                                                                                                               : singSwitch;
     energySwitch = (singSwitch != OldSignSwitch) ? true : false;
@@ -696,9 +696,13 @@ float Pendulum::computeLQR()
 
 float Pendulum::computeSwingUp()
 {
+
+    float swingAccel =
+    saturate(-K_ENERGY * (E - E0), SWING_UP_ACCEL);
+
     float a = (singSwitch > 0)
-                  ? +SWING_UP_ACCEL
-                  : -SWING_UP_ACCEL;
+              ? +swingAccel
+              : -swingAccel;
 
     const float brakingDistance =
         (x3 * x3) / (2.0f * SWING_UP_ACCEL);

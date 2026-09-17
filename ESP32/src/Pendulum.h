@@ -220,6 +220,7 @@ private:
     static constexpr float SWING_UP_KICK_ACCEL = 1.0f;
     static constexpr float KX_SWING = 7.0f;
     static constexpr float KV_SWING = 1.0f;
+    static constexpr float K_ENERGY = 30.0f;
     float thetaPreviousVelocity = 0.0f;
     uint32_t thetaVelocityTime = 0;
     float n = 0.6f;
