@@ -311,7 +311,10 @@ HomingState Pendulum::homingCentro()
 
 void Pendulum::emergencyStop()
 {
-    tmc.setRampMode(STOP);
+    // Command ramp generator to stop
+    tmc.setSpeed(0);
+
+    // Disable power stage immediately afterwards
     digitalWrite(EN, HIGH);
 
     resume = false;
