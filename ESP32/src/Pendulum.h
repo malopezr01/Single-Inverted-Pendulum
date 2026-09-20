@@ -117,7 +117,7 @@ private:
     static constexpr uint32_t HOMING_TIMEOUT_MS = 20000; // ms
     static constexpr long HOMING_TOLERANCE = 40;         // microsteps (~1 mm)
     //static constexpr uint32_t HOMING_TARGET = 5000;
-    static constexpr long HOMING_TARGET = 0;
+    static constexpr long HOMING_TARGET = -6000;
 
     // ========================================================================
     // Serial communication
@@ -201,7 +201,7 @@ private:
     const float ml = 0.0074800;
     const float g = 9.81;
     float E = 0.0f;
-    float E0 = 0.0f;
+    float E0 = 0.01f;
     float newTheta = 0.0f;
     float oldTheta = 0.0f;
     float deltaTheta = 0.0f;
@@ -220,7 +220,7 @@ private:
     static constexpr float SWING_UP_KICK_ACCEL = 1.0f;
     static constexpr float KX_SWING = 7.0f;
     static constexpr float KV_SWING = 1.0f;
-    static constexpr float K_ENERGY = 30.0f;
+    static constexpr float K_ENERGY = 50.0f;
     float thetaPreviousVelocity = 0.0f;
     uint32_t thetaVelocityTime = 0;
     float n = 0.6f;
