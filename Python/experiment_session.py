@@ -13,16 +13,17 @@ from telemetry_buffer import TelemetryBuffer
 class ExperimentSession:
     INIT, HOMING, READY, RUNNING, FAULT = range(5)
 
-    def __init__(self, notify, experiments_dir='experiments', logger=None):
+    def __init__(self, notify, experiments_dir='experiments', logger=None, port=None, baudrate=None):
         self.buffer = TelemetryBuffer()
         self._notify = notify
-        self._logger = logger if logger is not None else ExperimentLogger(experiments_dir)
+        self._logger = logger if logger is not None else ExperimentLogger(experiments_dir, port=port, baudrate=baudrate)
         self._queue = Queue()
         self._lock = Lock()
         self._active = False
         self._closed = False
         self._thread = None
         self._state = None
+        self._signals = None
         self._fault = False
         self._logging_failed = False
         self._finish_requested = False
@@ -39,7 +40,8 @@ class ExperimentSession:
     def submit(self, kind, payload):
         with self._lock:
             if not self._closed:
-                self._queue.put((kind, dict(payload) if kind == 'data' else payload))
+                self._queue.put((kind, dict(payload) if kind == 'data'
+                                 else tuple(payload) if kind == 'header' else payload))
 
     def finish(self, reason):
         self.submit('finish', reason)
@@ -64,13 +66,20 @@ class ExperimentSession:
         if not self._logger.active:
             return
         try:
-            filename, samples = self._logger.stop()
+            filename, samples = self._logger.stop(reason)
         finally:
             self._set_active(False)
         self._notify('finished', filename or '', samples, reason)
 
     def _process(self, kind, payload):
-        if kind == 'finish_when_ready':
+        if kind == 'header':
+            signals = tuple(payload)
+            if signals != self._signals:
+                pending = self._finish_requested
+                self._finish('Telemetry HEADER changed')
+                self._finish_requested = pending
+                self._signals = signals
+        elif kind == 'finish_when_ready':
             if self._state == self.RUNNING:
                 self._finish_requested = True
             else:
@@ -100,7 +109,9 @@ class ExperimentSession:
                 return
             if state == self.RUNNING:
                 if not self._logger.active and not self._logging_failed:
-                    filename = self._logger.start()
+                    # Compatibilidad con las tramas antiguas key=value sin HEADER.
+                    self._signals = self._signals or tuple(payload)
+                    filename = self._logger.start(self._signals)
                     self.buffer.clear()
                     self._set_active(True)
                     self._notify('started', filename)
@@ -111,6 +122,8 @@ class ExperimentSession:
                 self.buffer.append(payload)
             elif state == self.READY and self._state == self.RUNNING and self._logger.active:
                 self._notify('message', 'Experiment paused.')
+            if state != self.RUNNING:
+                self._logger.pause()
             self._state = state
             if state == self.READY and self._finish_requested:
                 self._finish("Finished by user")

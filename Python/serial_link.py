@@ -145,7 +145,9 @@ class SerialWorker(QObject):
 
         self.serial_link = serial_link
         self.parser = TelemetryParser()
-        self.session = ExperimentSession(self._session_event)
+        self.session = ExperimentSession(
+            self._session_event, port=serial_link.port, baudrate=serial_link.baudrate
+        )
 
         self._poll_timer = None
         self._reconnect_timer = None
@@ -303,6 +305,7 @@ class SerialWorker(QObject):
                     continue
 
                 if frame_type == "header":
+                    self.session.submit("header", payload)
                     self.header_received.emit(payload)
 
                 elif frame_type == "data":

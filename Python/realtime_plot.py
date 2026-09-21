@@ -1,322 +1,118 @@
+"""Visor posterior al experimento: descubre todas las columnas del CSV."""
 import csv
+from pathlib import Path
 
 import matplotlib
-
-matplotlib.use(
-    "QtAgg"
+matplotlib.use('QtAgg')
+import matplotlib.pyplot as plt
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QApplication, QDialog, QLabel, QListWidget, QListWidgetItem,
+    QPushButton, QVBoxLayout,
 )
 
-import matplotlib.pyplot as plt
+_viewers = []
+PALETTE = ('#0072BD', '#D95319', '#7E2F8E', '#77AC30', '#A2142F', '#4DBEEE', '#B58900')
 
 
-def plot_experiment(
-    filename,
-    block=False,
-):
+def read_experiment(filename):
+    """Admite data.csv nuevos y CSV antiguos con sus columnas originales."""
+    path = Path(filename)
+    if path.is_dir():
+        path = path / 'data.csv'
+    with path.open(encoding='utf-8-sig', newline='') as stream:
+        reader = csv.reader(stream)
+        names = next(reader, [])
+        if not names or any(not name for name in names) or len(set(names)) != len(names):
+            raise ValueError('CSV header is empty or contains duplicate names')
+        data = {name: [] for name in names}
+        for line_number, row in enumerate(reader, 2):
+            if not row:
+                continue
+            if len(row) != len(names):
+                raise ValueError(f'CSV row {line_number} has an unexpected column count')
+            values = [float(value) for value in row]
+            for name, value in zip(names, values):
+                data[name].append(value)
+    return path, data
 
-    time_data = []
 
-    theta = []
-    theta_dot = []
+class ExperimentViewer(QDialog):
+    def __init__(self, path, data):
+        super().__init__()
+        self.path = path
+        self.data = data
+        self.time_signal = next((name for name in ('Time', 'time') if name in data), None)
+        self.signal_names = [name for name in data if name != self.time_signal]
+        self.setWindowTitle(f'Saved experiment — {path.parent.name}')
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        layout = QVBoxLayout(self)
+        filename_label = QLabel(str(path))
+        filename_label.setWordWrap(True)
+        filename_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(filename_label)
+        count = len(next(iter(data.values())))
+        layout.addWidget(QLabel(f'{count} saved samples. Select signals to plot:'))
+        self.signals = QListWidget()
+        defaults = {'theta', 'x', 'u'} & set(self.signal_names)
+        if not defaults and self.signal_names:
+            defaults.add(self.signal_names[0])
+        for name in self.signal_names:
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if name in defaults else Qt.Unchecked)
+            self.signals.addItem(item)
+        layout.addWidget(self.signals)
+        self.open_button = QPushButton('Open selected plots')
+        self.open_button.clicked.connect(self.open_selected)
+        layout.addWidget(self.open_button)
+        area = self.screen().availableGeometry()
+        self.resize(min(640, area.width()-60), min(440, area.height()-80))
 
-    x = []
+    def open_selected(self):
+        count = len(next(iter(self.data.values())))
+        times = self.data[self.time_signal] if self.time_signal else range(count)
+        for index, name in enumerate(self.signal_names):
+            if self.signals.item(index).checkState() != Qt.Checked:
+                continue
+            figure = plt.figure(num=f'{self.path.resolve()} — {name}', clear=True,
+                                figsize=(8, 4.5), facecolor='white')
+            axis = figure.add_subplot(111)
+            color = {'theta':'#0072BD', 'x':'#D95319', 'u':'#7E2F8E'}.get(name, PALETTE[index % len(PALETTE)])
+            if name in {'state', 'mode'}:
+                axis.step(times, self.data[name], where='post', color=color, linewidth=1.5)
+            else:
+                axis.plot(times, self.data[name], color=color, linewidth=1.5)
+            axis.set(title=name, xlabel='Time [s]' if self.time_signal else 'Sample', ylabel=name)
+            axis.grid(True, alpha=.25)
+            figure.tight_layout()
+            area = self.screen().availableGeometry()
+            figure.canvas.manager.window.resize(min(800, area.width()-60), min(450, area.height()-80))
+            figure.show()
 
-    x_dot_obs = []
-    x_dot_xactual = []
 
-    u = []
-
-    state = []
-    mode = []
-
+def plot_experiment(filename, block=False):
     try:
-
-        with open(
-            filename,
-            "r",
-        ) as csv_file:
-
-            reader = csv.DictReader(
-                csv_file
-            )
-
-            for row in reader:
-
-                time_data.append(
-                    float(
-                        row["Time"]
-                    )
-                )
-
-                theta.append(
-                    float(
-                        row["theta"]
-                    )
-                )
-
-                theta_dot.append(
-                    float(
-                        row["thetaDot"]
-                    )
-                )
-
-                x.append(
-                    float(
-                        row["x"]
-                    )
-                )
-
-                x_dot_obs.append(
-                    float(
-                        row["xDotObs"]
-                    )
-                )
-
-                x_dot_xactual.append(
-                    float(
-                        row["xDotXActual"]
-                    )
-                )
-
-                u.append(
-                    float(
-                        row["u"]
-                    )
-                )
-
-                state.append(
-                    int(
-                        float(
-                            row["state"]
-                        )
-                    )
-                )
-
-                mode.append(
-                    int(
-                        float(
-                            row["mode"]
-                        )
-                    )
-                )
-
+        path, data = read_experiment(filename)
     except Exception as exc:
-
-        print(
-            f"Error leyendo CSV: {exc}"
-        )
-
-        return
-
-    if not time_data:
-
-        print(
-            "No hay datos para graficar."
-        )
-
-        return
-
-    print(
-        (
-            f"Graficando "
-            f"{len(time_data)} muestras..."
-        )
-    )
-
-    # =============================================
-    # Pendulum
-    # =============================================
-
-    plt.figure(
-        "Pendulum state"
-    )
-
-    plt.plot(
-        time_data,
-        theta,
-        label="theta [rad]",
-    )
-
-    plt.plot(
-        time_data,
-        theta_dot,
-        label="thetaDot [rad/s]",
-    )
-
-    plt.xlabel(
-        "Time [s]"
-    )
-
-    plt.ylabel(
-        "Pendulum state"
-    )
-
-    plt.title(
-        "Pendulum angle and angular velocity"
-    )
-
-    plt.grid(
-        True
-    )
-
-    plt.legend()
-
-    # =============================================
-    # Position
-    # =============================================
-
-    plt.figure(
-        "Cart position"
-    )
-
-    plt.plot(
-        time_data,
-        x,
-        label="x [m]",
-    )
-
-    plt.xlabel(
-        "Time [s]"
-    )
-
-    plt.ylabel(
-        "Position [m]"
-    )
-
-    plt.title(
-        "Cart position"
-    )
-
-    plt.grid(
-        True
-    )
-
-    plt.legend()
-
-    # =============================================
-    # Velocity
-    # =============================================
-
-    plt.figure(
-        "Cart velocity"
-    )
-
-    plt.plot(
-        time_data,
-        x_dot_obs,
-        label="xDotObs [m/s]",
-    )
-
-    plt.plot(
-        time_data,
-        x_dot_xactual,
-        label="xDotXActual [m/s]",
-    )
-
-    plt.xlabel(
-        "Time [s]"
-    )
-
-    plt.ylabel(
-        "Velocity [m/s]"
-    )
-
-    plt.title(
-        "Cart velocity comparison"
-    )
-
-    plt.grid(
-        True
-    )
-
-    plt.legend()
-
-    # =============================================
-    # Control
-    # =============================================
-
-    plt.figure(
-        "Control action"
-    )
-
-    plt.plot(
-        time_data,
-        u,
-        label="u [m/s²]",
-    )
-
-    plt.xlabel(
-        "Time [s]"
-    )
-
-    plt.ylabel(
-        "Control acceleration [m/s²]"
-    )
-
-    plt.title(
-        "Control action"
-    )
-
-    plt.grid(
-        True
-    )
-
-    plt.legend()
-
-    # =============================================
-    # State / Mode
-    # =============================================
-
-    plt.figure(
-        "System state"
-    )
-
-    plt.step(
-        time_data,
-        state,
-        where="post",
-        label="SystemState",
-    )
-
-    plt.step(
-        time_data,
-        mode,
-        where="post",
-        label="ControlMode",
-    )
-
-    plt.xlabel(
-        "Time [s]"
-    )
-
-    plt.ylabel(
-        "State / Mode"
-    )
-
-    plt.title(
-        "System state and control mode"
-    )
-
-    plt.grid(
-        True
-    )
-
-    plt.legend()
-
-    plt.show(
-        block=block
-    )
+        print(f'Error leyendo CSV: {exc}')
+        return None
+    if not next(iter(data.values())):
+        print('No hay datos para graficar.')
+        return None
+    if QApplication.instance() is None:
+        raise RuntimeError('The experiment viewer requires QApplication')
+    viewer = ExperimentViewer(path, data)
+    _viewers.append(viewer)
+    viewer.finished.connect(lambda _result: _viewers.remove(viewer) if viewer in _viewers else None)
+    if block:
+        viewer.exec()
+    else:
+        viewer.show()
+    return viewer
 
 
 def close_all_plots():
-    """
-    Cierra todas las ventanas matplotlib.
-
-    Se usa antes de terminar QApplication para
-    que Qt no destruya widgets matplotlib después
-    de haber destruido ya el backend gráfico.
-    """
-
-    plt.close(
-        "all"
-    )
+    for viewer in list(_viewers):
+        viewer.close()
+    plt.close('all')

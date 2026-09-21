@@ -34,7 +34,7 @@ class PipelineTests(unittest.TestCase):
         for i in range(10000):
             self.session.submit('data', sample(i / 100))
         self.session.close()
-        files = list(Path(self.tmp.name).glob('*.csv'))
+        files = list(Path(self.tmp.name).glob('*/data.csv'))
         with files[0].open() as f:
             rows = list(csv.DictReader(f))
         self.assertEqual(len(rows), 10000)
@@ -66,7 +66,7 @@ class PipelineTests(unittest.TestCase):
         self.session.submit('data', sample())
         self.drain()
         self.assertTrue(self.session.active)
-        self.assertEqual(len(list(Path(self.tmp.name).glob('*.csv'))), 2)
+        self.assertEqual(len(list(Path(self.tmp.name).glob('*/data.csv'))), 2)
 
     def test_home_and_finish_paused(self):
         self.session.submit('data', sample())

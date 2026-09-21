@@ -1,4 +1,6 @@
 import os
+import csv
+import json
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import sys
 import tempfile
@@ -36,7 +38,7 @@ class QtPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch('gui.plot_experiment') as plot:
             link=FakeSerial()
             worker=SerialWorker(link)
-            worker.session=ExperimentSession(worker._session_event,tmp)
+            worker.session._logger.experiments_dir = Path(tmp)
             thread=QThread(); worker.moveToThread(thread)
             window=MainWindow(worker)
             for signal, slot in (
@@ -77,6 +79,16 @@ class QtPipelineTests(unittest.TestCase):
                     app.processEvents();time.sleep(.005)
                 self.assertFalse(worker.session.active)
                 self.assertTrue(plot.called)
+                filename = Path(plot.call_args.args[0])
+                with filename.open() as stream:
+                    rows = list(csv.DictReader(stream))
+                self.assertEqual(len(rows), 100)
+                self.assertEqual(rows[-1]['energy'], '12')
+                metadata = json.loads(filename.with_name('metadata.json').read_text())
+                self.assertEqual(metadata['port'], 'simulated')
+                self.assertEqual(metadata['baudrate'], 115200)
+                self.assertEqual(metadata['signals'][-1], 'energy')
+                self.assertEqual(metadata['sample_count'], 100)
             finally:
                 window.close()
                 deadline=time.monotonic()+3

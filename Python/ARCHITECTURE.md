@@ -1,4 +1,4 @@
-# Adquisición y experimentos — fases 2, 3 y 4
+# Adquisición y experimentos — fases 2, 3, 4 y 6
 
 - `SerialLink` y `SerialWorker`: puerto serie, comandos y parser en el QThread serie.
 - `ExperimentSession`: cola FIFO y un hilo de registro independiente. Es el único propietario de `ExperimentLogger`. Abre el experimento en la primera DATA RUNNING, conserva el CSV durante READY y lo cierra en FINISH, HOME, FAULT, E-STOP, reinicio o cierre de la aplicación.
@@ -7,7 +7,7 @@
 
 Se conservan las muestras de RUNNING, como antes. Las muestras de READY no se guardan. El cierre de la aplicación detiene primero la adquisición y drena la cola de registro antes de terminar. Un fallo de escritura se comunica a la GUI y suspende el registro hasta un nuevo INIT; no detiene el hilo serie. La cola no descarta muestras: un disco persistentemente más lento que la entrada aumentará la memoria utilizada.
 
-El CSV sigue teniendo columnas fijas. La pausa/limpieza visual, columnas dinámicas y metadata pertenecen a las fases siguientes. Las señales adicionales ya se conservan en el buffer visual.
+El CSV utiliza las columnas del HEADER. La fase 5 (pausa/limpieza visual) se ha descartado. Las señales adicionales se conservan tanto en el buffer visual como en el CSV.
 
 ## Verificación
 
@@ -35,4 +35,16 @@ La ventana principal se ajusta al área disponible de la pantalla y mantiene los
 
 HEADER genera automáticamente una lista de casillas. Time se reserva como eje horizontal; todas las demás señales, incluidos state y mode, se pueden representar. theta, x y u aparecen marcadas inicialmente, pero no se abren ventanas hasta pulsar Open selected plots. Las señales nuevas no necesitan configuración Python; se asigna un color automáticamente y se usa su nombre como etiqueta, sin inventar unidades.
 
-Las cabeceras repetidas no recrean ventanas ni cambian selecciones. Si el esquema cambia, se conserva la selección de las señales restantes, se añaden las nuevas y se cierran las retiradas. Desmarcar oculta la gráfica; los datos siguen llegando al buffer y al registro bajo las reglas de la fase 2. Cerrar manualmente una ventana permite volver a abrirla con el botón. Las columnas CSV continúan fijas hasta la fase 6.
+Las cabeceras repetidas no recrean ventanas ni cambian selecciones. Si el esquema cambia, se conserva la selección de las señales restantes, se añaden las nuevas y se cierran las retiradas. Desmarcar oculta la gráfica; los datos siguen llegando al buffer y al registro bajo las reglas de la fase 2. Cerrar manualmente una ventana permite volver a abrirla con el botón. Las columnas CSV siguen el HEADER desde la fase 6.
+
+## CSV y metadatos — fase 6
+
+Cada experimento crea una carpeta exclusiva `experiments/experiment_FECHA_HORA_ID/` con `data.csv` y `metadata.json`. El orden del CSV es exactamente el del HEADER. SerialWorker entrega HEADER y DATA por la misma cola FIFO; las repeticiones idénticas no abren archivos nuevos. Un cambio de nombres u orden cierra el segmento anterior con motivo `Telemetry HEADER changed`; la siguiente DATA RUNNING abre otro. En READY no se abre un archivo vacío: se espera a reanudar. Los CSV de segmentos previos se conservan sin mezclarlos. Las tramas antiguas key=value usan sus claves como esquema inicial.
+
+Se mantiene la política de guardar únicamente RUNNING; una pausa conserva el archivo abierto. Metadatos: inicio y final con zona horaria, puerto, baudrate, señales, muestras, duración real de la sesión, tiempo cubierto por intervalos dentro de RUNNING, frecuencia estimada y motivo de cierre. La frecuencia se calcula usando intervalos positivos de Time/time, sin cruzar pausas; no es una medida de la frecuencia del control. Si no hay intervalos suficientes se guarda null.
+
+Los metadatos se crean al abrir y se actualizan tras vaciar el CSV cada 50 muestras y al cerrar. Se escriben a un temporal y se sustituyen de forma atómica. El estado `recording` indica que no se confirmó un cierre limpio; los contadores son los del último checkpoint y pueden ir por detrás del CSV. Esto no garantiza conservar los datos aún en memoria ante corte de corriente. Un fallo de escritura sigue notificándose a la GUI y detiene el registro hasta INIT.
+
+Al finalizar se abre un selector de señales del CSV guardado. Open selected plots crea gráficas matplotlib independientes con los datos completos, incluidas señales nuevas. Las curvas state/mode usan escalones; las demás son continuas. Los CSV antiguos siguen siendo legibles. Un cambio de HEADER cierra el segmento sin abrir automáticamente el visor en mitad del control. Los segmentos anteriores y cualquier CSV antiguo se pueden abrir desde Open saved CSV en la ventana principal.
+
+Prueba en hardware: añadir una señal solo en HEADER/DATA, ejecutar START → PAUSE → RESUME → PAUSE → FINISH; revisar la columna nueva, su gráfica y metadata. La frecuencia física del ESP32 no se cambia en esta fase.

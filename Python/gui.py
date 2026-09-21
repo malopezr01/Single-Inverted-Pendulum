@@ -14,6 +14,7 @@ from PySide6.QtGui import QFont
 
 from PySide6.QtWidgets import (
     QFrame,
+    QFileDialog,
     QDialog,
     QScrollArea,
     QDoubleSpinBox,
@@ -500,7 +501,12 @@ class MainWindow(QMainWindow):
         self.open_signals_button = QPushButton("Open selected plots")
         self.open_signals_button.setEnabled(False)
         self.open_signals_button.clicked.connect(self._open_selected_plots)
-        plots_layout.addWidget(self.open_signals_button)
+        plot_actions = QHBoxLayout()
+        plot_actions.addWidget(self.open_signals_button)
+        self.open_saved_button = QPushButton("Open saved CSV")
+        self.open_saved_button.clicked.connect(self._open_saved_experiment)
+        plot_actions.addWidget(self.open_saved_button)
+        plots_layout.addLayout(plot_actions)
         plots_layout.addWidget(QLabel("Time is the horizontal axis. Closing a plot keeps recording active."))
         main_layout.addWidget(plots_group)
 
@@ -981,7 +987,8 @@ class MainWindow(QMainWindow):
         self.finish_pending = False
         self._append_console("PC", f"{reason}. {samples} samples saved.")
         self._update_buttons()
-        if filename and samples > 0 and not self.shutdown_started:
+        if (filename and samples > 0 and not self.shutdown_started
+                and reason != "Telemetry HEADER changed"):
             plot_experiment(filename, block=False)
 
     # =================================================
@@ -1258,6 +1265,14 @@ class MainWindow(QMainWindow):
         self.open_signals_button.setEnabled(any(
             item.checkState() == Qt.Checked for item in self.signal_items.values()
         ))
+
+    @Slot()
+    def _open_saved_experiment(self):
+        filename, _filter = QFileDialog.getOpenFileName(
+            self, "Open saved experiment", "experiments", "CSV files (*.csv)"
+        )
+        if filename and plot_experiment(filename, block=False) is None:
+            self._append_console("ERROR", "Could not load CSV or the experiment is empty.")
 
     def _open_selected_plots(self):
         for name, item in self.signal_items.items():

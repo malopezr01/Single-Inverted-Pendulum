@@ -1,0 +1,30 @@
+{
+  "format_version": 1,
+  "status": "completed",
+  "started_at": "2026-09-21T19:34:21.578924+02:00",
+  "finished_at": "2026-09-21T19:34:51.379888+02:00",
+  "port": "/dev/ttyACM0",
+  "baudrate": 115200,
+  "signals": [
+    "Time",
+    "theta",
+    "thetaDot",
+    "x",
+    "xDotObs",
+    "xDotXActual",
+    "u",
+    "E",
+    "state",
+    "mode"
+  ],
+  "sample_count": 883,
+  "duration_seconds": 29.800334039999143,
+  "active_sample_span_seconds": 26.4684,
+  "estimated_acquisition_hz": 33.32275468105364,
+  "frequency_basis": "positive telemetry time intervals within RUNNING segments",
+  "time_signal": "Time",
+  "first_sample_time": 0.0,
+  "last_sample_time": 26.4684,
+  "logging_policy": "RUNNING samples only; READY pauses keep the file open",
+  "stop_reason": "Finished by user"
+}
