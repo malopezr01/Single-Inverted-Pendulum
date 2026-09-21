@@ -2,13 +2,14 @@ import signal
 import sys
 
 from PySide6.QtCore import (
+    Qt,
     QThread,
     QTimer,
 )
 
 from PySide6.QtWidgets import QApplication
 
-from gui import MainWindow
+from gui_runtime import MainWindow
 
 from serial_link import (
     SerialLink,
@@ -34,19 +35,8 @@ def main():
         "Inverted Pendulum Control"
     )
 
-        # IMPORTANTE:
-    #
-    # No queremos que Qt termine automáticamente
-    # cuando se cierre MainWindow.
-    #
-    # Primero necesitamos:
-    #
-    # 1. cerrar plots matplotlib
-    # 2. pedir al SerialWorker que termine
-    # 3. cerrar Serial
-    # 4. terminar su QThread
-    # 5. entonces cerrar QApplication
-
+    # El cierre de la aplicación lo controla el shutdown ordenado del
+    # worker serie, no la presencia o ausencia del ESP32.
     app.setQuitOnLastWindowClosed(
         False
     )
@@ -99,6 +89,24 @@ def main():
         window.handle_message
     )
 
+    serial_worker.header_received.connect(
+        window.handle_header
+    )
+
+    serial_worker.event_received.connect(
+        window.handle_event,
+        Qt.ConnectionType.QueuedConnection,
+    )
+
+    serial_worker.esp_error_received.connect(
+        window.handle_esp_error
+    )
+
+    serial_worker.protocol_error.connect(
+        window.handle_protocol_error,
+        Qt.ConnectionType.QueuedConnection,
+    )
+
     serial_worker.connection_changed.connect(
         window.handle_connection_changed
     )
@@ -107,19 +115,21 @@ def main():
         window.handle_serial_error
     )
 
+    serial_worker.experiment_started.connect(
+        window.handle_experiment_started, Qt.ConnectionType.QueuedConnection
+    )
+    serial_worker.experiment_finished.connect(
+        window.handle_experiment_finished, Qt.ConnectionType.QueuedConnection
+    )
+    serial_worker.experiment_message.connect(
+        window.handle_experiment_message, Qt.ConnectionType.QueuedConnection
+    )
+    serial_worker.experiment_error.connect(
+        window.handle_serial_error, Qt.ConnectionType.QueuedConnection
+    )
+
     # =============================================
     # GUI -> Serial
-    #
-    # MUY IMPORTANTE:
-    #
-    # No llamamos serial_worker.stop() directamente
-    # desde MainWindow.
-    #
-    # MainWindow emite una SIGNAL.
-    #
-    # Como SerialWorker vive en serial_thread,
-    # Qt ejecutará SerialWorker.stop() dentro de
-    # ese thread.
     # =============================================
 
     window.shutdown_requested.connect(
@@ -134,8 +144,6 @@ def main():
         serial_thread.quit
     )
 
-    # Sólo cuando el thread Serial ha terminado
-    # dejamos terminar QApplication.
     serial_thread.finished.connect(
         app.quit
     )
@@ -152,13 +160,7 @@ def main():
         signum,
         frame,
     ):
-        """
-        Ctrl+C ya no genera KeyboardInterrupt
-        dentro de los callbacks de Qt.
-
-        En su lugar pedimos a Qt que cierre
-        MainWindow normalmente.
-        """
+        """Convierte Ctrl+C en un cierre normal de MainWindow."""
 
         if shutdown_requested["value"]:
             return
@@ -171,10 +173,6 @@ def main():
             "Cerrando aplicación..."
         )
 
-        # No ejecutamos window.close() directamente
-        # dentro del signal handler.
-        #
-        # Lo ponemos en la cola de eventos Qt.
         QTimer.singleShot(
             0,
             window.close,
@@ -184,10 +182,6 @@ def main():
         signal.SIGINT,
         handle_sigint,
     )
-
-    # =============================================
-    # Timer para procesamiento de señales Python
-    # =============================================
 
     signal_timer = QTimer()
 
@@ -209,14 +203,6 @@ def main():
 
     exit_code = app.exec()
 
-    # =============================================
-    # Aquí el Serial thread YA debería haber
-    # terminado.
-    #
-    # No llamamos worker.stop() desde aquí porque
-    # sería volver a cruzar threads incorrectamente.
-    # =============================================
-
     serial_thread.wait(
         1500
     )
@@ -228,3 +214,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

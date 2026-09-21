@@ -126,11 +126,14 @@ private:
     // Functions
     bool checkSerialResume();
     bool checkSerialCommand();
+    void sendTelemetryHeader();
+    void sendTelemetryHeaderPeriodic();
     void sendTelemetry();
 
     // Variables
     bool resume = false;
     uint32_t lastTelemetry = 0;
+    uint32_t lastTelemetryHeader = 0;
 
     // ========================================================================
     // Measured system states

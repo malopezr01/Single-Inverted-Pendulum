@@ -4,19 +4,21 @@ void Pendulum::begin()
 {
     systemState = SystemState::INIT;
     controlMode = ControlMode::NONE;
+    resume = false;
 
     initializeHardware();
     configureMotor();
 
-    if (!performHoming())
-    {
-        return;
-    }
+    // El sistema arranca siempre inmóvil. El homing sólo se ejecuta
+    // cuando el usuario envía explícitamente el comando H.
+    digitalWrite(EN, HIGH);
 
-    initializePendulumReference();
-    initializeObserver();
+    // Publicamos el esquema de telemetría desde INIT para que el PC
+    // pueda interpretar DATA incluso antes de realizar el homing.
+    sendTelemetryHeader();
+    lastTelemetryHeader = millis();
 
-    enterReadyState();
+    Serial.println("MSG,INIT - Waiting for HOME command");
 }
 
 void Pendulum::update()
@@ -24,6 +26,7 @@ void Pendulum::update()
     checkLimitSwitchSafety();
     checkSerialCommand();
     updateStateMachine();
+    sendTelemetryHeaderPeriodic();
     sendTelemetry();
 }
 
@@ -76,10 +79,9 @@ void Pendulum::configureMotor()
 
     tmc.init(0.05f, 0.4f, microstepConfig);
 
+    // El motor arranca deshabilitado. Los parámetros de movimiento
+    // se configuran explícitamente en cada rutina de homing/control.
     digitalWrite(EN, HIGH); // Disable motor
-
-    tmc.setAcceleration(300);
-    tmc.setSpeed(1500);
 }
 
 bool Pendulum::performHoming()
@@ -95,7 +97,7 @@ bool Pendulum::performHoming()
 
     if (homingState != HomingState::OK)
     {
-        Serial.println("Error durante homing izquierda.");
+        Serial.println("ERROR,Error durante homing izquierda.");
         emergencyStop();
         return false;
     }
@@ -104,7 +106,7 @@ bool Pendulum::performHoming()
 
     if (homingState != HomingState::OK)
     {
-        Serial.println("Error durante homing derecha.");
+        Serial.println("ERROR,Error durante homing derecha.");
         emergencyStop();
         return false;
     }
@@ -113,7 +115,7 @@ bool Pendulum::performHoming()
 
     if (homingState != HomingState::OK)
     {
-        Serial.println("Error durante homing centro.");
+        Serial.println("ERROR,Error durante homing centro.");
         emergencyStop();
         return false;
     }
@@ -137,14 +139,14 @@ bool Pendulum::performHoming()
 
 void Pendulum::initializePendulumReference()
 {
-    Serial.println("Definiendo posicion inicial del pendulo...");
+    Serial.println("MSG,Definiendo posicion inicial del pendulo...");
 
     delay(5000);
 
     encoder.actualPosition(2000);
     encoder.setEncoderEnabled(true);
 
-    Serial.println("Posicion inicial del pendulo definida.");
+    Serial.println("MSG,Posicion inicial del pendulo definida.");
 
     delay(1000);
 }
@@ -178,7 +180,8 @@ void Pendulum::initializeObserver()
 
 void Pendulum::enterReadyState()
 {
-    homingState = HomingState::OK;
+    // La validez del homing la decide performHoming(). Esta función
+    // únicamente realiza la transición segura hacia READY.
     systemState = SystemState::READY;
     controlMode = ControlMode::NONE;
 
@@ -187,17 +190,22 @@ void Pendulum::enterReadyState()
 
     digitalWrite(EN, HIGH); // Disable Motor
 
-    // READY must start without stale limit-switch events from homing.
     fc.resetF1State();
     fc.resetF2State();
+    // READY must start without stale limit-switch events from homing.
 
-    Serial.println("READY");
+    Serial.println("MSG,READY");
 }
 
 HomingState Pendulum::homingIzquierda()
 {
-    Serial.println(" Homing izquierda...");
+    Serial.println("MSG,Homing izquierda...");
 
+    // Esta rutina define por sí misma todos los parámetros necesarios.
+    // Es importante porque READY y el comando H dejan speed = 0 antes
+    // de iniciar un nuevo homing.
+    tmc.setAcceleration(300);
+    tmc.setSpeed(1500);
     tmc.setRampMode(CCW);
 
     // The current electrical state is authoritative during homing.
@@ -226,7 +234,7 @@ HomingState Pendulum::homingIzquierda()
 
 HomingState Pendulum::homingDerecha()
 {
-    Serial.println("Homing derecha...");
+    Serial.println("MSG,Homing derecha...");
 
     tmc.setRampMode(CW);
     tmc.setAcceleration(500);
@@ -262,7 +270,7 @@ HomingState Pendulum::homingDerecha()
 
 HomingState Pendulum::homingCentro()
 {
-    Serial.println("Calculando centro...");
+    Serial.println("MSG,Calculando centro...");
 
     // const long railPosition = tmc.getSPIPosition();
     // const long centerTarget = railPosition / 2;
@@ -321,7 +329,7 @@ void Pendulum::emergencyStop()
     controlMode = ControlMode::NONE;
     systemState = SystemState::FAULT;
 
-    Serial.println("EMERGENCY STOP - Motor deshabilitado");
+    Serial.println("ERROR,EMERGENCY STOP - Motor deshabilitado");
 }
 
 bool Pendulum::checkSerialCommand()
@@ -329,38 +337,21 @@ bool Pendulum::checkSerialCommand()
     /*
      * Comandos válidos:
      *
-     * R -> START
-     * S -> STOP
+     * H -> HOME
+     * R -> START / RESUME
+     * S -> STOP / PAUSE
      * X -> EMERGENCY STOP
      *
      * Sólo se aceptan MAYÚSCULAS.
-     *
-     * Esto es importante porque antes también aceptábamos:
-     *
-     * r
-     * s
-     * x
-     *
-     * y cualquier carácter espurio recibido por Serial
-     * podía provocar una acción accidental.
      */
 
     if (Serial.available() > 0)
     {
         char command = Serial.read();
 
-        /*
-         * Ignoramos cualquier carácter que no sea
-         * exactamente R, S o X.
-         *
-         * Por tanto:
-         *
-         * 'r' -> ignorado
-         * 'H' -> ignorado
-         * 'o' -> ignorado
-         * '\n' -> ignorado
-         */
+        // Cualquier carácter distinto de H/R/S/X se ignora.
         if (
+            command != 'H' &&
             command != 'R' &&
             command != 'S' &&
             command != 'X')
@@ -368,11 +359,58 @@ bool Pendulum::checkSerialCommand()
             return resume;
         }
 
-        Serial.print("RX command: ");
+        Serial.print("MSG,RX command: ");
         Serial.println(command);
 
         switch (command)
         {
+            // =========================================
+            // HOME
+            // =========================================
+
+        case 'H':
+
+            /*
+             * H sólo se admite desde estados seguros:
+             *
+             * INIT  -> primer homing después del arranque.
+             * READY -> recalibración voluntaria.
+             *
+             * En RUNNING, HOMING o FAULT no tiene efecto.
+             */
+            if (
+                systemState == SystemState::INIT ||
+                systemState == SystemState::READY)
+            {
+                Serial.println(
+                    "MSG,H received -> starting homing");
+
+                resume = false;
+                controlMode = ControlMode::NONE;
+
+                // Dejamos el sistema detenido y desenergizado antes de
+                // entrar al homing. Cada rutina de homing configurará de
+                // nuevo su velocidad, aceleración y sentido antes de EN=LOW.
+                tmc.setSpeed(0);
+                digitalWrite(EN, HIGH);
+
+                if (!performHoming())
+                {
+                    return resume;
+                }
+
+                initializePendulumReference();
+                initializeObserver();
+                enterReadyState();
+            }
+            else
+            {
+                Serial.println(
+                    "MSG,H ignored - system not in INIT or READY");
+            }
+
+            break;
+
             // =========================================
             // START
             // =========================================
@@ -383,13 +421,13 @@ bool Pendulum::checkSerialCommand()
              * R sólo tiene efecto cuando el sistema
              * está realmente en READY.
              *
-             * Si estamos en HOMING, RUNNING o FAULT
+             * Si estamos en INIT, HOMING, RUNNING o FAULT
              * no hace absolutamente nada.
              */
             if (systemState == SystemState::READY)
             {
                 Serial.println(
-                    "R received -> resume = true");
+                    "MSG,R received -> resume = true");
 
                 resume = true;
             }
@@ -403,7 +441,7 @@ bool Pendulum::checkSerialCommand()
         case 'S':
 
             Serial.println(
-                "S received -> resume = false");
+                "MSG,S received -> resume = false");
 
             resume = false;
 
@@ -416,7 +454,7 @@ bool Pendulum::checkSerialCommand()
         case 'X':
 
             Serial.println(
-                "X received -> EMERGENCY STOP");
+                "MSG,X received -> EMERGENCY STOP");
 
             emergencyStop();
 
@@ -488,13 +526,13 @@ void Pendulum::updateReadyState()
         if (fabsf(encoder.getTheta()) < THETA_MAX)
         {
             controlMode = ControlMode::LQR;
-            Serial.println("Starting in LQR mode");
+            Serial.println("MSG,Starting in LQR mode");
         }
         else
         {
             controlMode = ControlMode::SWING_UP;
             OldSignSwitch = singSwitch;
-            Serial.println("Starting in SWING_UP mode");
+            Serial.println("MSG,Starting in SWING_UP mode");
         }
 
         systemState = SystemState::RUNNING;
@@ -502,7 +540,7 @@ void Pendulum::updateReadyState()
         tmc.setSpeed(V_MAX * speedRatio);
         digitalWrite(EN, LOW);
 
-        Serial.println("RUNNING");
+        Serial.println("MSG,RUNNING");
     }
 }
 
@@ -534,7 +572,7 @@ void Pendulum::updateRunningState()
                 observerInitialized = false;
                 controlMode = ControlMode::LQR;
 
-                Serial.println("SWING_UP -> LQR");
+                Serial.println("EVENT,SWING_UP_TO_LQR");
             }
         }
         else if (controlMode == ControlMode::LQR)
@@ -543,7 +581,7 @@ void Pendulum::updateRunningState()
             {
                 controlMode = ControlMode::SWING_UP;
                 OldSignSwitch = singSwitch;
-                Serial.println("LQR -> SWING_UP");
+                Serial.println("EVENT,LQR_TO_SWING_UP");
             }
         }
 
@@ -777,6 +815,35 @@ float Pendulum::setAccelerationLQR(float a)
     return a;
 }
 
+void Pendulum::sendTelemetryHeader()
+{
+    /*
+     * El HEADER es la única fuente de verdad sobre la estructura
+     * de DATA. Para añadir una señal nueva basta con:
+     *
+     *   1. añadir aquí su nombre;
+     *   2. añadir su valor en sendTelemetry(), en la misma posición.
+     *
+     * El parser Python descubre automáticamente el resto.
+     *
+     * Se mantiene "Time" con mayúscula durante esta fase para que
+     * la GUI actual continúe funcionando sin cambios.
+     */
+    Serial.println(
+        "HEADER,Time,theta,thetaDot,x,xDotObs,xDotXActual,u,E,state,mode");
+}
+
+void Pendulum::sendTelemetryHeaderPeriodic()
+{
+    uint32_t now = millis();
+
+    if (now - lastTelemetryHeader >= 1000)
+    {
+        lastTelemetryHeader = now;
+        sendTelemetryHeader();
+    }
+}
+
 void Pendulum::sendTelemetry()
 {
     uint32_t now = millis();
@@ -785,32 +852,50 @@ void Pendulum::sendTelemetry()
     {
         lastTelemetry = now;
 
-        Serial.print("Time=");
+        /*
+         * El orden de los valores debe coincidir exactamente con
+         * sendTelemetryHeader(). Sólo las líneas DATA contienen
+         * muestras numéricas; MSG/EVENT/ERROR quedan separados.
+         */
+        Serial.print("DATA,");
+
+        // Time
         Serial.print(cuenta, 4);
+        Serial.print(",");
 
-        Serial.print(" theta=");
+        // theta
         Serial.print(x0, 4);
+        Serial.print(",");
 
-        Serial.print(" thetaDot=");
+        // thetaDot
         Serial.print(thetaDotSwingUp, 4);
+        Serial.print(",");
 
-        Serial.print(" x=");
+        // x
         Serial.print(x2, 4);
+        Serial.print(",");
 
-        Serial.print(" xDotObs=");
+        // xDotObs
         Serial.print(xhat[3], 4);
+        Serial.print(",");
 
-        Serial.print(" xDotXActual=");
+        // xDotXActual
         Serial.print(x3, 4);
+        Serial.print(",");
 
-        Serial.print(" u=");
-        // Serial.print(-k * (E - E0) * sign(thetaDotSwingUp * cosf(x0)), 4);
+        // u
         Serial.print(u, 4);
+        Serial.print(",");
 
-        Serial.print(" state=");
+        // E
+        Serial.print(E, 4);
+        Serial.print(",");
+
+        // state
         Serial.print(static_cast<int>(systemState));
+        Serial.print(",");
 
-        Serial.print(" mode=");
+        // mode
         Serial.println(static_cast<int>(controlMode));
     }
 }
