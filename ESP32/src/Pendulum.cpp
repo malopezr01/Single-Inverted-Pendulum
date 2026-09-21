@@ -16,6 +16,7 @@ void Pendulum::begin()
     // Publicamos el esquema de telemetría desde INIT para que el PC
     // pueda interpretar DATA incluso antes de realizar el homing.
     sendTelemetryHeader();
+    lastTelemetryHeader = millis();
 
     Serial.println("MSG,INIT - Waiting for HOME command");
 }
@@ -25,6 +26,7 @@ void Pendulum::update()
     checkLimitSwitchSafety();
     checkSerialCommand();
     updateStateMachine();
+    sendTelemetryHeaderPeriodic();
     sendTelemetry();
 }
 
@@ -829,6 +831,17 @@ void Pendulum::sendTelemetryHeader()
      */
     Serial.println(
         "HEADER,Time,theta,thetaDot,x,xDotObs,xDotXActual,u,state,mode");
+}
+
+void Pendulum::sendTelemetryHeaderPeriodic()
+{
+    uint32_t now = millis();
+
+    if (now - lastTelemetryHeader >= 1000)
+    {
+        lastTelemetryHeader = now;
+        sendTelemetryHeader();
+    }
 }
 
 void Pendulum::sendTelemetry()

@@ -120,10 +120,10 @@ class MainWindow(BaseMainWindow):
             self._update_buttons()
 
         elif message == "RUNNING":
-            # RUNNING is informational here. The telemetry DATA frame owns
-            # the canonical state transition so BaseMainWindow can detect
-            # READY -> RUNNING and start the experiment logger correctly.
-            pass
+            self.current_state = SystemState.RUNNING
+            self.state_label.setText("RUNNING")
+            self._update_state_style(SystemState.RUNNING)
+            self._update_buttons()
 
     def handle_esp_error(self, message):
         """Procesa errores explícitos enviados por el firmware."""
