@@ -1,3 +1,4 @@
+from PySide6.QtCore import Slot
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QPushButton, QSizePolicy
 
@@ -57,6 +58,14 @@ class MainWindow(BaseMainWindow):
 
         control_layout = self.start_button.parentWidget().layout()
         control_layout.insertWidget(0, self.home_button)
+
+    @Slot(str)
+    def handle_event(self, message):
+        self.handle_message(f"EVENT: {message}")
+
+    @Slot(str)
+    def handle_protocol_error(self, message):
+        self.handle_serial_error(f"Protocol error: {message}")
 
     def handle_header(self, signals):
         """Muestra el esquema sólo cuando aparece o cambia."""
@@ -284,3 +293,4 @@ class MainWindow(BaseMainWindow):
         )
 
         self._enter_fault_ui("EMERGENCY STOP")
+

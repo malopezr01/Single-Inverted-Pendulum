@@ -2,6 +2,7 @@ import signal
 import sys
 
 from PySide6.QtCore import (
+    Qt,
     QThread,
     QTimer,
 )
@@ -93,9 +94,8 @@ def main():
     )
 
     serial_worker.event_received.connect(
-        lambda message: window.handle_message(
-            f"EVENT: {message}"
-        )
+        window.handle_event,
+        Qt.ConnectionType.QueuedConnection,
     )
 
     serial_worker.esp_error_received.connect(
@@ -103,9 +103,8 @@ def main():
     )
 
     serial_worker.protocol_error.connect(
-        lambda message: window.handle_serial_error(
-            f"Protocol error: {message}"
-        )
+        window.handle_protocol_error,
+        Qt.ConnectionType.QueuedConnection,
     )
 
     serial_worker.connection_changed.connect(
@@ -202,3 +201,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
