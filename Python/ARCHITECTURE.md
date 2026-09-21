@@ -1,4 +1,4 @@
-# Adquisición y experimentos — fases 2 y 3
+# Adquisición y experimentos — fases 2, 3 y 4
 
 - `SerialLink` y `SerialWorker`: puerto serie, comandos y parser en el QThread serie.
 - `ExperimentSession`: cola FIFO y un hilo de registro independiente. Es el único propietario de `ExperimentLogger`. Abre el experimento en la primera DATA RUNNING, conserva el CSV durante READY y lo cierra en FINISH, HOME, FAULT, E-STOP, reinicio o cierre de la aplicación.
@@ -7,7 +7,7 @@
 
 Se conservan las muestras de RUNNING, como antes. Las muestras de READY no se guardan. El cierre de la aplicación detiene primero la adquisición y drena la cola de registro antes de terminar. Un fallo de escritura se comunica a la GUI y suspende el registro hasta un nuevo INIT; no detiene el hilo serie. La cola no descarta muestras: un disco persistentemente más lento que la entrada aumentará la memoria utilizada.
 
-El CSV sigue teniendo columnas fijas. El selector de señales, pausa/limpieza visual, columnas dinámicas y metadata pertenecen a las fases siguientes. Las señales adicionales ya se conservan en el buffer visual.
+El CSV sigue teniendo columnas fijas. La pausa/limpieza visual, columnas dinámicas y metadata pertenecen a las fases siguientes. Las señales adicionales ya se conservan en el buffer visual.
 
 ## Verificación
 
@@ -25,8 +25,14 @@ PyQtGraph consulta el buffer cada 40 ms (25 Hz nominales). Solo redibuja si camb
 
 El control «Visible window (s)» ajusta la ventana temporal. Reducirla descarta únicamente historial visual; ampliarla se completa con muestras nuevas. Se usa Time del ESP32 (tiempo activo), por lo que la pausa del controlador conserva las curvas. Un retroceso del tiempo limpia el historial visual; tiempos no finitos no se añaden al buffer. El CSV no se modifica por estas decisiones de visualización.
 
-Las curvas actuales siguen siendo theta, x y u; el selector dinámico pertenece a la fase 4. La prueba a 500 muestras/s utiliza tiempos simulados y comprueba retención y señales adicionales; no certifica el rendimiento del enlace físico del ESP32.
+Las curvas se crean dinámicamente mediante el selector de señales. La prueba a 500 muestras/s utiliza tiempos simulados y comprueba retención y señales adicionales; no certifica el rendimiento del enlace físico del ESP32.
 
 ## Ventanas de gráficas
 
-La ventana principal se ajusta al área disponible de la pantalla y mantiene los controles en dos filas fuera del área desplazable. Los botones Open theta/x/u plot abren ventanas independientes no modales. Cerrar una gráfica la oculta: adquisición, CSV y buffer continúan, y se puede reabrir con el historial disponible. Al cerrar la aplicación se cierran todas las ventanas. Las curvas usan fondo blanco y colores azul, naranja y violeta.
+La ventana principal se ajusta al área disponible de la pantalla y mantiene los controles en dos filas fuera del área desplazable. El botón Open selected plots abre ventanas independientes no modales para las señales marcadas. Cerrar una gráfica la oculta: adquisición, CSV y buffer continúan, y se puede reabrir con el historial disponible. Al cerrar la aplicación se cierran todas las ventanas. Las curvas usan fondo blanco y colores azul, naranja y violeta.
+
+## Selector de señales — fase 4
+
+HEADER genera automáticamente una lista de casillas. Time se reserva como eje horizontal; todas las demás señales, incluidos state y mode, se pueden representar. theta, x y u aparecen marcadas inicialmente, pero no se abren ventanas hasta pulsar Open selected plots. Las señales nuevas no necesitan configuración Python; se asigna un color automáticamente y se usa su nombre como etiqueta, sin inventar unidades.
+
+Las cabeceras repetidas no recrean ventanas ni cambian selecciones. Si el esquema cambia, se conserva la selección de las señales restantes, se añaden las nuevas y se cierran las retiradas. Desmarcar oculta la gráfica; los datos siguen llegando al buffer y al registro bajo las reglas de la fase 2. Cerrar manualmente una ventana permite volver a abrirla con el botón. Las columnas CSV continúan fijas hasta la fase 6.

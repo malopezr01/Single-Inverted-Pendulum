@@ -74,6 +74,7 @@ class MainWindow(BaseMainWindow):
 
         if header != self.known_header:
             self.known_header = header
+            self.set_available_signals(signals)
             self.handle_message(
                 "HEADER: " + ", ".join(signals)
             )

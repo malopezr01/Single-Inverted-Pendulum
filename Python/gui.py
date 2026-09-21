@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
+    QListWidget,
+    QListWidgetItem,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -485,32 +487,21 @@ class MainWindow(QMainWindow):
 
         self.plot_windows = {}
         self.plot_series = {}
-        plot_buttons = QHBoxLayout()
-        specs = (
-            ("theta", "Pendulum angle", "theta [rad]", "#0072BD"),
-            ("x", "Cart position", "x [m]", "#D95319"),
-            ("u", "Control acceleration", "u [m/s²]", "#7E2F8E"),
-        )
-        for name, title, label, color in specs:
-            dialog = QDialog(self, Qt.Window)
-            dialog.setWindowTitle(title)
-            dialog.setModal(False)
-            layout = QVBoxLayout(dialog)
-            plot = self._create_plot(title, label)
-            curve = plot.plot(pen=pg.mkPen(color, width=2), antialias=True)
-            plot.setXRange(0, self.PLOT_WINDOW_SECONDS, padding=0)
-            layout.addWidget(plot)
-            self.plot_windows[name] = dialog
-            self.plot_series[name] = (plot, curve)
-            # Mantener los nombres actuales para los controles y las pruebas.
-            setattr(self, f"{name}_plot", plot)
-            setattr(self, f"{name}_curve", curve)
-            button = QPushButton(f"Open {name} plot")
-            button.setStyleSheet(f"color: {color}; font-weight: bold; padding: 8px;")
-            button.clicked.connect(lambda checked=False, signal=name: self._open_plot(signal))
-            plot_buttons.addWidget(button)
-        plots_layout.addLayout(plot_buttons)
-        plots_layout.addWidget(QLabel("Each plot opens in its own window. Closing it keeps recording active."))
+        self._signal_header = None
+        self.signal_items = {}
+        self.signal_colors = {}
+        self.signal_list = QListWidget()
+        self.signal_list.setMaximumHeight(130)
+        self.signal_list.setMinimumHeight(75)
+        self.signal_list.itemChanged.connect(self._signal_selection_changed)
+        self.signals_label = QLabel("Signals (waiting for HEADER):")
+        plots_layout.addWidget(self.signals_label)
+        plots_layout.addWidget(self.signal_list)
+        self.open_signals_button = QPushButton("Open selected plots")
+        self.open_signals_button.setEnabled(False)
+        self.open_signals_button.clicked.connect(self._open_selected_plots)
+        plots_layout.addWidget(self.open_signals_button)
+        plots_layout.addWidget(QLabel("Time is the horizontal axis. Closing a plot keeps recording active."))
         main_layout.addWidget(plots_group)
 
         # =============================================
@@ -1225,7 +1216,68 @@ class MainWindow(QMainWindow):
         window.move(area.x() + max(0, (area.width() - window.width()) // 2),
                     area.y() + max(0, (area.height() - window.height()) // 2))
 
+    def set_available_signals(self, signals):
+        header = tuple(signals)
+        if header == self._signal_header:
+            return
+        previous = {name: item.checkState() == Qt.Checked
+                    for name, item in self.signal_items.items()}
+        names = [name for name in header if name != "Time"]
+        for name in list(self.plot_windows):
+            if name not in names:
+                dialog = self.plot_windows.pop(name)
+                dialog.close()
+                dialog.deleteLater()
+                self.plot_series.pop(name)
+        self._signal_header = header
+        self.signal_list.blockSignals(True)
+        self.signal_list.clear()
+        self.signal_items.clear()
+        palette = ("#0072BD", "#D95319", "#7E2F8E", "#77AC30",
+                   "#A2142F", "#4DBEEE", "#B58900")
+        defaults = {"theta": "#0072BD", "x": "#D95319", "u": "#7E2F8E"}
+        for name in names:
+            color = self.signal_colors.setdefault(
+                name, defaults.get(name, palette[len(self.signal_colors) % len(palette)])
+            )
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if previous.get(name, name in defaults) else Qt.Unchecked)
+            item.setForeground(pg.mkColor(color))
+            self.signal_list.addItem(item)
+            self.signal_items[name] = item
+        self.signal_list.blockSignals(False)
+        self.signals_label.setText(f"Signals ({len(names)} available):")
+        self._signal_selection_changed()
+        self._plot_revision = None
+
+    def _signal_selection_changed(self, item=None):
+        for name, dialog in self.plot_windows.items():
+            if self.signal_items[name].checkState() != Qt.Checked:
+                dialog.close()
+        self.open_signals_button.setEnabled(any(
+            item.checkState() == Qt.Checked for item in self.signal_items.values()
+        ))
+
+    def _open_selected_plots(self):
+        for name, item in self.signal_items.items():
+            if item.checkState() == Qt.Checked:
+                self._open_plot(name)
+
     def _open_plot(self, name):
+        if name not in self.signal_items:
+            return
+        if name not in self.plot_windows:
+            labels = {"theta": "theta [rad]", "x": "x [m]", "u": "u [m/s²]"}
+            dialog = QDialog(self, Qt.Window)
+            dialog.setWindowTitle(name)
+            dialog.setModal(False)
+            layout = QVBoxLayout(dialog)
+            plot = self._create_plot(name, labels.get(name, name))
+            curve = plot.plot(pen=pg.mkPen(self.signal_colors[name], width=2), antialias=True)
+            layout.addWidget(plot)
+            self.plot_windows[name] = dialog
+            self.plot_series[name] = (plot, curve)
         dialog = self.plot_windows[name]
         if not dialog.isVisible():
             self._fit_to_screen(dialog, 800, 450)
@@ -1237,8 +1289,8 @@ class MainWindow(QMainWindow):
 
     def _clear_plot_buffers(self):
         self.visual_buffer.clear()
-        for curve in (self.theta_curve, self.x_curve, self.u_curve):
-            curve.setData([], [])
+        self._plot_revision = None
+        self._update_plots()
 
     @Slot(float)
     def _set_plot_window(self, seconds):
