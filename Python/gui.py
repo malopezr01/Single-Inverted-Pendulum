@@ -1,4 +1,3 @@
-from collections import deque
 from enum import IntEnum
 
 import pyqtgraph as pg
@@ -8,6 +7,7 @@ from PySide6.QtCore import (
     QTimer,
     Qt,
     Signal,
+    Slot,
 )
 
 from PySide6.QtGui import QFont
@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from experiment_logger import ExperimentLogger
 
 from realtime_plot import (
     close_all_plots,
@@ -86,9 +85,9 @@ class MainWindow(QMainWindow):
             serial_worker
         )
 
-        self.logger = ExperimentLogger(
-            experiments_dir="experiments"
-        )
+        self.session = serial_worker.session
+        self.visual_buffer = self.session.buffer
+        self.visual_buffer.window_seconds = self.PLOT_WINDOW_SECONDS
 
         self.connected = False
 
@@ -105,14 +104,6 @@ class MainWindow(QMainWindow):
         # =============================================
         # Buffers
         # =============================================
-
-        self.time_buffer = deque()
-
-        self.theta_buffer = deque()
-
-        self.x_buffer = deque()
-
-        self.u_buffer = deque()
 
         # =============================================
         # Window
@@ -879,6 +870,7 @@ class MainWindow(QMainWindow):
     # Connection
     # =================================================
 
+    @Slot(bool, str)
     def handle_connection_changed(
         self,
         connected,
@@ -919,6 +911,7 @@ class MainWindow(QMainWindow):
 
         self._update_buttons()
 
+    @Slot(str)
     def handle_serial_error(
         self,
         message,
@@ -929,6 +922,7 @@ class MainWindow(QMainWindow):
             message,
         )
 
+    @Slot(str)
     def handle_message(
         self,
         message,
@@ -943,6 +937,7 @@ class MainWindow(QMainWindow):
     # Telemetry
     # =================================================
 
+    @Slot(dict)
     def handle_telemetry(
         self,
         data,
@@ -1001,10 +996,6 @@ class MainWindow(QMainWindow):
             "mode"
         ]
 
-        previous_state = (
-            self.current_state
-        )
-
         self.current_state = (
             new_state
         )
@@ -1029,111 +1020,12 @@ class MainWindow(QMainWindow):
             new_state
         )
 
-        # =============================================
-        # Entrada RUNNING
-        # MSG,RUNNING puede haber actualizado ya el estado visual.
-        # La primera DATA debe abrir el registro o confirmar la reanudación.
-        # =============================================
-
-        if (
-            new_state == SystemState.RUNNING
-            and (
-                previous_state != SystemState.RUNNING
-                or self.start_pending
-                or not self.logger.active
-            )
-        ):
-
+        if new_state == SystemState.RUNNING:
             self.start_pending = False
 
-            if not self.logger.active:
-
-                self._clear_plot_buffers()
-
-                filename = (
-                    self.logger.start()
-                )
-
-                self._append_console(
-                    "PC",
-                    (
-                        "New experiment started. "
-                        f"CSV: {filename}"
-                    ),
-                )
-
-            else:
-
-                self._append_console(
-                    "PC",
-                    "Experiment resumed.",
-                )
-
-        # =============================================
-        # Logging
-        # =============================================
-
-        if (
-            new_state
-            == SystemState.RUNNING
-        ):
-
-            if self.logger.active:
-
-                self.logger.write(
-                    data
-                )
-
-            self._append_plot_sample(
-                data
-            )
-
-        # =============================================
-        # RUNNING -> READY
-        # =============================================
-
-        if (
-            previous_state
-            == SystemState.RUNNING
-            and new_state
-            == SystemState.READY
-        ):
-
-            if self.finish_pending:
-
-                self.finish_pending = False
-
-                self._finish_experiment(
-                    "Finished by user"
-                )
-
-            elif self.logger.active:
-
-                self._append_console(
-                    "PC",
-                    "Experiment paused.",
-                )
-
-        # =============================================
-        # FAULT
-        # =============================================
-
-        if (
-            previous_state
-            != SystemState.FAULT
-            and new_state
-            == SystemState.FAULT
-        ):
-
+        if new_state == SystemState.FAULT:
             self.start_pending = False
-
             self.finish_pending = False
-
-            if self.logger.active:
-
-                self._finish_experiment(
-                    "FAULT"
-                )
 
         self._update_buttons()
 
@@ -1141,36 +1033,22 @@ class MainWindow(QMainWindow):
     # Experiment
     # =================================================
 
-    def _finish_experiment(
-        self,
-        reason,
-    ):
+    @Slot(str)
+    def handle_experiment_started(self, filename):
+        self._append_console("PC", f"New experiment started. CSV: {filename}")
+        self._update_buttons()
 
-        if not self.logger.active:
-            return
+    @Slot(str)
+    def handle_experiment_message(self, message):
+        self._append_console("PC", message)
 
-        (
-            filename,
-            samples,
-        ) = self.logger.stop()
-
-        self._append_console(
-            "PC",
-            (
-                f"{reason}. "
-                f"{samples} samples saved."
-            ),
-        )
-
-        if (
-            filename
-            and samples > 0
-        ):
-
-            plot_experiment(
-                filename,
-                block=False,
-            )
+    @Slot(str, int, str)
+    def handle_experiment_finished(self, filename, samples, reason):
+        self.finish_pending = False
+        self._append_console("PC", f"{reason}. {samples} samples saved.")
+        self._update_buttons()
+        if filename and samples > 0 and not self.shutdown_started:
+            plot_experiment(filename, block=False)
 
     # =================================================
     # State names
@@ -1295,7 +1173,7 @@ class MainWindow(QMainWindow):
 
         self.finish_button.setEnabled(
             (
-                self.logger.active
+                self.session.active
                 and not self.finish_pending
             )
         )
@@ -1364,41 +1242,14 @@ class MainWindow(QMainWindow):
             "PAUSE sent.",
         )
 
-    def _finish_clicked(
-        self,
-    ):
-
-        if not self.logger.active:
+    def _finish_clicked(self):
+        if not self.session.active or self.finish_pending:
             return
-
-        if (
-            self.current_state
-            == SystemState.RUNNING
-        ):
-
-            self.finish_pending = True
-
-            self.serial_worker.queue_command(
-                "S"
-            )
-
-            self._append_console(
-                "PC",
-                (
-                    "FINISH requested. "
-                    "Waiting for READY..."
-                ),
-            )
-
-        elif (
-            self.current_state
-            == SystemState.READY
-        ):
-
-            self._finish_experiment(
-                "Finished by user"
-            )
-
+        self.finish_pending = True
+        self.session.finish_when_ready()
+        if self.current_state == SystemState.RUNNING:
+            self.serial_worker.queue_command("S")
+            self._append_console("PC", "FINISH requested. Waiting for READY...")
         self._update_buttons()
 
     def _estop_clicked(
@@ -1423,112 +1274,18 @@ class MainWindow(QMainWindow):
     # Plots
     # =================================================
 
-    def _clear_plot_buffers(
-        self,
-    ):
+    def _clear_plot_buffers(self):
+        self.visual_buffer.clear()
+        for curve in (self.theta_curve, self.x_curve, self.u_curve):
+            curve.setData([], [])
 
-        self.time_buffer.clear()
-
-        self.theta_buffer.clear()
-
-        self.x_buffer.clear()
-
-        self.u_buffer.clear()
-
-        self.theta_curve.setData(
-            [],
-            [],
-        )
-
-        self.x_curve.setData(
-            [],
-            [],
-        )
-
-        self.u_curve.setData(
-            [],
-            [],
-        )
-
-    def _append_plot_sample(
-        self,
-        data,
-    ):
-
-        current_time = data[
-            "Time"
-        ]
-
-        self.time_buffer.append(
-            current_time
-        )
-
-        self.theta_buffer.append(
-            data["theta"]
-        )
-
-        self.x_buffer.append(
-            data["x"]
-        )
-
-        self.u_buffer.append(
-            data["u"]
-        )
-
-        minimum_time = (
-            current_time
-            - self.PLOT_WINDOW_SECONDS
-        )
-
-        while (
-            self.time_buffer
-            and self.time_buffer[0]
-            < minimum_time
-        ):
-
-            self.time_buffer.popleft()
-
-            self.theta_buffer.popleft()
-
-            self.x_buffer.popleft()
-
-            self.u_buffer.popleft()
-
-    def _update_plots(
-        self,
-    ):
-
-        if (
-            self.shutdown_started
-            or not self.time_buffer
-        ):
-
+    def _update_plots(self):
+        if self.shutdown_started:
             return
-
-        time_data = list(
-            self.time_buffer
-        )
-
-        self.theta_curve.setData(
-            time_data,
-            list(
-                self.theta_buffer
-            ),
-        )
-
-        self.x_curve.setData(
-            time_data,
-            list(
-                self.x_buffer
-            ),
-        )
-
-        self.u_curve.setData(
-            time_data,
-            list(
-                self.u_buffer
-            ),
-        )
+        values = self.visual_buffer.snapshot(("Time", "theta", "x", "u"))
+        self.theta_curve.setData(values["Time"], values["theta"])
+        self.x_curve.setData(values["Time"], values["x"])
+        self.u_curve.setData(values["Time"], values["u"])
 
     # =================================================
     # Shutdown
@@ -1570,39 +1327,7 @@ class MainWindow(QMainWindow):
 
         self.plot_timer.stop()
 
-        # -----------------------------------------
-        # Si existe un experimento abierto,
-        # cerramos el CSV.
-        #
-        # Al salir de la aplicación NO abrimos
-        # nuevas gráficas.
-        # -----------------------------------------
-
-        if self.logger.active:
-
-            try:
-
-                (
-                    filename,
-                    samples,
-                ) = self.logger.stop()
-
-                print(
-                    (
-                        "Experiment saved on exit: "
-                        f"{filename} "
-                        f"({samples} samples)"
-                    )
-                )
-
-            except Exception as exc:
-
-                print(
-                    (
-                        "Error closing experiment: "
-                        f"{exc}"
-                    )
-                )
+        # SerialWorker drena y cierra el registro antes de emitir finished.
 
         # -----------------------------------------
         # Cerrar TODAS las ventanas matplotlib

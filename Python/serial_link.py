@@ -11,6 +11,7 @@ from PySide6.QtCore import (
 )
 
 from telemetry_parser import TelemetryParser
+from experiment_session import ExperimentSession
 
 
 class SerialLink:
@@ -118,6 +119,10 @@ class SerialWorker(QObject):
     finished cuando la aplicación solicita el cierre.
     """
 
+    experiment_started = Signal(str)
+    experiment_finished = Signal(str, int, str)
+    experiment_message = Signal(str)
+    experiment_error = Signal(str)
     telemetry_received = Signal(dict)
     header_received = Signal(list)
     message_received = Signal(str)
@@ -140,6 +145,7 @@ class SerialWorker(QObject):
 
         self.serial_link = serial_link
         self.parser = TelemetryParser()
+        self.session = ExperimentSession(self._session_event)
 
         self._poll_timer = None
         self._reconnect_timer = None
@@ -153,8 +159,18 @@ class SerialWorker(QObject):
         self._command_queue = deque()
         self._command_lock = threading.Lock()
 
+    def _session_event(self, kind, *args):
+        signals = {
+            'started': self.experiment_started,
+            'finished': self.experiment_finished,
+            'message': self.experiment_message,
+            'error': self.experiment_error,
+        }
+        signals[kind].emit(*args)
+
     @Slot()
     def start(self):
+        self.session.start()
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(self.POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll_serial)
@@ -219,6 +235,8 @@ class SerialWorker(QObject):
             return
 
         with self._command_lock:
+            if command in {"H", "X"}:
+                self.session.submit("command", command)
             if command == "X":
                 self._command_queue.clear()
                 self._command_queue.appendleft("X")
@@ -288,15 +306,18 @@ class SerialWorker(QObject):
                     self.header_received.emit(payload)
 
                 elif frame_type == "data":
+                    self.session.submit("data", payload)
                     self.telemetry_received.emit(payload)
 
                 elif frame_type == "message":
+                    self.session.submit("message", payload)
                     self.message_received.emit(payload)
 
                 elif frame_type == "event":
                     self.event_received.emit(payload)
 
                 elif frame_type == "error":
+                    self.session.submit("error", payload)
                     self.esp_error_received.emit(payload)
 
                 elif frame_type == "protocol_error":
@@ -360,6 +381,7 @@ class SerialWorker(QObject):
         except Exception:
             pass
 
+        self.session.close()
         self._emit_connection_state(False, "Puerto cerrado")
         self._emit_finished()
 

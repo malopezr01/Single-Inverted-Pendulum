@@ -115,6 +115,19 @@ def main():
         window.handle_serial_error
     )
 
+    serial_worker.experiment_started.connect(
+        window.handle_experiment_started, Qt.ConnectionType.QueuedConnection
+    )
+    serial_worker.experiment_finished.connect(
+        window.handle_experiment_finished, Qt.ConnectionType.QueuedConnection
+    )
+    serial_worker.experiment_message.connect(
+        window.handle_experiment_message, Qt.ConnectionType.QueuedConnection
+    )
+    serial_worker.experiment_error.connect(
+        window.handle_serial_error, Qt.ConnectionType.QueuedConnection
+    )
+
     # =============================================
     # GUI -> Serial
     # =============================================

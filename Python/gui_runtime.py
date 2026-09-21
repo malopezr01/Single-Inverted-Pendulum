@@ -67,6 +67,7 @@ class MainWindow(BaseMainWindow):
     def handle_protocol_error(self, message):
         self.handle_serial_error(f"Protocol error: {message}")
 
+    @Slot(list)
     def handle_header(self, signals):
         """Muestra el esquema sólo cuando aparece o cambia."""
         header = tuple(signals)
@@ -77,6 +78,7 @@ class MainWindow(BaseMainWindow):
                 "HEADER: " + ", ".join(signals)
             )
 
+    @Slot(bool, str)
     def handle_connection_changed(self, connected, description):
         if not connected:
             self.home_pending = False
@@ -91,6 +93,7 @@ class MainWindow(BaseMainWindow):
 
         super().handle_connection_changed(connected, description)
 
+    @Slot(str)
     def handle_message(self, message):
         super().handle_message(message)
 
@@ -134,6 +137,7 @@ class MainWindow(BaseMainWindow):
             self._update_state_style(SystemState.RUNNING)
             self._update_buttons()
 
+    @Slot(str)
     def handle_esp_error(self, message):
         """Procesa errores explícitos enviados por el firmware."""
         self._append_console(
@@ -144,6 +148,7 @@ class MainWindow(BaseMainWindow):
         if "EMERGENCY STOP" in message.upper():
             self._enter_fault_ui("EMERGENCY STOP")
 
+    @Slot(dict)
     def handle_telemetry(self, data):
         incoming_state = data.get("state")
 
@@ -172,8 +177,6 @@ class MainWindow(BaseMainWindow):
 
     def _enter_fault_ui(self, reason):
         """Enclava toda la interfaz en FAULT hasta un nuevo INIT."""
-        already_faulted = self.fault_latched
-
         self.fault_latched = True
         self.home_pending = False
         self.start_pending = False
@@ -186,11 +189,7 @@ class MainWindow(BaseMainWindow):
         self.mode_label.setText("NONE")
         self._update_state_style(SystemState.FAULT)
 
-        # Si el E-STOP sucede durante un experimento, lo cerramos ahora.
-        # Al fijar FAULT localmente no dependemos de esperar otra trama DATA.
-        if self.logger.active and not already_faulted:
-            self._finish_experiment(reason)
-
+        # El registro se cierra en ExperimentSession al recibir X/ERROR/FAULT.
         self._update_buttons()
 
     def _update_buttons(self):
@@ -230,7 +229,7 @@ class MainWindow(BaseMainWindow):
         # Rehacer homing cambia la referencia mecánica, por lo que ese
         # experimento se cerrará automáticamente antes de enviar H.
         logger_allows_home = (
-            not self.logger.active
+            not self.session.active
             or self.current_state == SystemState.READY
         )
 
@@ -261,13 +260,11 @@ class MainWindow(BaseMainWindow):
         # Si estamos en READY tras haber pausado un experimento, HOME debe
         # ser posible. No continuamos el mismo CSV después del homing porque
         # la referencia de posición puede haber cambiado: lo cerramos antes.
-        if self.logger.active:
+        if self.session.active:
             if self.current_state != SystemState.READY:
                 return
 
-            self._finish_experiment(
-                "Experiment closed before homing"
-            )
+            self.finish_pending = True
 
         self.home_pending = True
         self.serial_worker.queue_command("H")

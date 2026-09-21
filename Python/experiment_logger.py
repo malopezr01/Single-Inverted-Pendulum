@@ -50,7 +50,7 @@ class ExperimentLogger:
         )
 
         timestamp = datetime.now().strftime(
-            "%Y-%m-%d_%H-%M-%S"
+            "%Y-%m-%d_%H-%M-%S_%f"
         )
 
         return os.path.join(
@@ -84,9 +84,13 @@ class ExperimentLogger:
             self.csv_file
         )
 
-        self.writer.writerow(
-            CSV_HEADER
-        )
+        try:
+            self.writer.writerow(CSV_HEADER)
+        except Exception:
+            self.csv_file.close()
+            self.csv_file = None
+            self.writer = None
+            raise
 
         self.sample_count = 0
 
@@ -141,14 +145,11 @@ class ExperimentLogger:
         try:
             self.csv_file.flush()
         finally:
-            self.csv_file.close()
+            try:
+                self.csv_file.close()
+            finally:
+                self.csv_file = None
+                self.writer = None
+                self.active = False
 
-        self.csv_file = None
-        self.writer = None
-
-        self.active = False
-
-        return (
-            self.filename,
-            self.sample_count,
-        )
+        return self.filename, self.sample_count
