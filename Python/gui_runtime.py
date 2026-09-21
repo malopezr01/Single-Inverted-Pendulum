@@ -57,7 +57,7 @@ class MainWindow(BaseMainWindow):
         self.home_button.clicked.connect(self._home_clicked)
 
         control_layout = self.start_button.parentWidget().layout()
-        control_layout.insertWidget(0, self.home_button)
+        control_layout.addWidget(self.home_button, 0, 0)
 
     @Slot(str)
     def handle_event(self, message):

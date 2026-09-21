@@ -14,6 +14,9 @@ from PySide6.QtGui import QFont
 
 from PySide6.QtWidgets import (
     QFrame,
+    QDialog,
+    QScrollArea,
+    QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -21,7 +24,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSizePolicy,
-    QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -69,7 +71,8 @@ class MainWindow(QMainWindow):
         bool
     )
 
-    PLOT_WINDOW_SECONDS = 15.0
+    PLOT_WINDOW_SECONDS = 10.0
+    PLOT_REFRESH_MS = 40  # 25 Hz; independiente del registro y del puerto serie.
 
     def __init__(
         self,
@@ -88,6 +91,7 @@ class MainWindow(QMainWindow):
         self.session = serial_worker.session
         self.visual_buffer = self.session.buffer
         self.visual_buffer.window_seconds = self.PLOT_WINDOW_SECONDS
+        self._plot_revision = None
 
         self.connected = False
 
@@ -113,12 +117,8 @@ class MainWindow(QMainWindow):
             "Inverted Pendulum Control"
         )
 
-        self.resize(
-            1100,
-            720,
-        )
-
         self._build_ui()
+        self._fit_to_screen(self, 980, 610)
 
         # =============================================
         # Plot refresh
@@ -132,9 +132,7 @@ class MainWindow(QMainWindow):
             self._update_plots
         )
 
-        self.plot_timer.start(
-            100
-        )
+        self.plot_timer.start(self.PLOT_REFRESH_MS)
 
         self._update_buttons()
 
@@ -151,9 +149,15 @@ class MainWindow(QMainWindow):
             QSizePolicy.Expanding,
         )
 
-        self.setCentralWidget(
-            central_widget
-        )
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(8, 8, 8, 8)
+        self.setCentralWidget(root)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(central_widget)
+        root_layout.addWidget(scroll, 1)
 
         main_layout = QVBoxLayout(
             central_widget
@@ -447,14 +451,7 @@ class MainWindow(QMainWindow):
         # Real-time plots
         # =============================================
 
-        plots_group = QGroupBox(
-            (
-                "Real-time plots "
-                f"(last "
-                f"{self.PLOT_WINDOW_SECONDS:.0f} s "
-                "active time)"
-            )
-        )
+        plots_group = QGroupBox("Real-time plots")
 
         plots_group.setSizePolicy(
             QSizePolicy.Expanding,
@@ -472,90 +469,49 @@ class MainWindow(QMainWindow):
             4,
         )
 
-        self.plot_splitter = QSplitter(
-            Qt.Vertical
+        window_controls = QHBoxLayout()
+        window_controls.addWidget(QLabel("Visible window (s):"))
+        self.plot_window_spin = QDoubleSpinBox()
+        self.plot_window_spin.setRange(1.0, 30.0)
+        self.plot_window_spin.setDecimals(1)
+        self.plot_window_spin.setValue(self.PLOT_WINDOW_SECONDS)
+        self.plot_window_spin.setToolTip(
+            "Active time. Increasing the window fills it with new samples."
         )
+        self.plot_window_spin.valueChanged.connect(self._set_plot_window)
+        window_controls.addWidget(self.plot_window_spin)
+        window_controls.addStretch()
+        plots_layout.addLayout(window_controls)
 
-        self.plot_splitter.setChildrenCollapsible(
-            False
+        self.plot_windows = {}
+        self.plot_series = {}
+        plot_buttons = QHBoxLayout()
+        specs = (
+            ("theta", "Pendulum angle", "theta [rad]", "#0072BD"),
+            ("x", "Cart position", "x [m]", "#D95319"),
+            ("u", "Control acceleration", "u [m/s²]", "#7E2F8E"),
         )
-
-        self.theta_plot = (
-            self._create_plot(
-                "Pendulum angle",
-                "theta [rad]",
-            )
-        )
-
-        self.x_plot = (
-            self._create_plot(
-                "Cart position",
-                "x [m]",
-            )
-        )
-
-        self.u_plot = (
-            self._create_plot(
-                "Control acceleration",
-                "u [m/s²]",
-            )
-        )
-
-        self.theta_curve = (
-            self.theta_plot.plot()
-        )
-
-        self.x_curve = (
-            self.x_plot.plot()
-        )
-
-        self.u_curve = (
-            self.u_plot.plot()
-        )
-
-        self.plot_splitter.addWidget(
-            self.theta_plot
-        )
-
-        self.plot_splitter.addWidget(
-            self.x_plot
-        )
-
-        self.plot_splitter.addWidget(
-            self.u_plot
-        )
-
-        self.plot_splitter.setStretchFactor(
-            0,
-            1,
-        )
-
-        self.plot_splitter.setStretchFactor(
-            1,
-            1,
-        )
-
-        self.plot_splitter.setStretchFactor(
-            2,
-            1,
-        )
-
-        self.plot_splitter.setSizes(
-            [
-                140,
-                140,
-                140,
-            ]
-        )
-
-        plots_layout.addWidget(
-            self.plot_splitter
-        )
-
-        main_layout.addWidget(
-            plots_group,
-            stretch=1,
-        )
+        for name, title, label, color in specs:
+            dialog = QDialog(self, Qt.Window)
+            dialog.setWindowTitle(title)
+            dialog.setModal(False)
+            layout = QVBoxLayout(dialog)
+            plot = self._create_plot(title, label)
+            curve = plot.plot(pen=pg.mkPen(color, width=2), antialias=True)
+            plot.setXRange(0, self.PLOT_WINDOW_SECONDS, padding=0)
+            layout.addWidget(plot)
+            self.plot_windows[name] = dialog
+            self.plot_series[name] = (plot, curve)
+            # Mantener los nombres actuales para los controles y las pruebas.
+            setattr(self, f"{name}_plot", plot)
+            setattr(self, f"{name}_curve", curve)
+            button = QPushButton(f"Open {name} plot")
+            button.setStyleSheet(f"color: {color}; font-weight: bold; padding: 8px;")
+            button.clicked.connect(lambda checked=False, signal=name: self._open_plot(signal))
+            plot_buttons.addWidget(button)
+        plots_layout.addLayout(plot_buttons)
+        plots_layout.addWidget(QLabel("Each plot opens in its own window. Closing it keeps recording active."))
+        main_layout.addWidget(plots_group)
 
         # =============================================
         # Console
@@ -602,9 +558,7 @@ class MainWindow(QMainWindow):
 
         control_frame = QFrame()
 
-        control_layout = QHBoxLayout(
-            control_frame
-        )
+        control_layout = QGridLayout(control_frame)
 
         control_layout.setContentsMargins(
             0,
@@ -743,26 +697,13 @@ class MainWindow(QMainWindow):
             self._estop_clicked
         )
 
-        control_layout.addWidget(
-            self.start_button
-        )
-
-        control_layout.addWidget(
-            self.stop_button
-        )
-
-        control_layout.addWidget(
-            self.finish_button
-        )
-
-        control_layout.addWidget(
-            self.estop_button,
-            stretch=2,
-        )
-
-        main_layout.addWidget(
-            control_frame
-        )
+        control_layout.addWidget(self.start_button, 0, 1)
+        control_layout.addWidget(self.stop_button, 0, 2)
+        control_layout.addWidget(self.finish_button, 1, 0, 1, 2)
+        control_layout.addWidget(self.estop_button, 1, 2)
+        for column in range(3):
+            control_layout.setColumnStretch(column, 1)
+        root_layout.addWidget(control_frame)
 
     # =================================================
     # Helpers
@@ -804,11 +745,13 @@ class MainWindow(QMainWindow):
         y_label,
     ):
 
-        plot = pg.PlotWidget()
+        plot = pg.PlotWidget(background="white")
+        for axis_name in ("left", "bottom"):
+            axis = plot.getAxis(axis_name)
+            axis.setPen(pg.mkPen("#555555"))
+            axis.setTextPen(pg.mkPen("#333333"))
 
-        plot.setTitle(
-            title
-        )
+        plot.setTitle(title, color="#222222", size="12pt")
 
         plot.setLabel(
             "left",
@@ -832,7 +775,7 @@ class MainWindow(QMainWindow):
         )
 
         plot.setMinimumHeight(
-            40
+            120
         )
 
         return plot
@@ -1274,18 +1217,49 @@ class MainWindow(QMainWindow):
     # Plots
     # =================================================
 
+    @staticmethod
+    def _fit_to_screen(window, width, height):
+        area = window.screen().availableGeometry()
+        window.resize(min(width, max(1, area.width() - 60)),
+                      min(height, max(1, area.height() - 80)))
+        window.move(area.x() + max(0, (area.width() - window.width()) // 2),
+                    area.y() + max(0, (area.height() - window.height()) // 2))
+
+    def _open_plot(self, name):
+        dialog = self.plot_windows[name]
+        if not dialog.isVisible():
+            self._fit_to_screen(dialog, 800, 450)
+        self._plot_revision = None
+        self._update_plots()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
     def _clear_plot_buffers(self):
         self.visual_buffer.clear()
         for curve in (self.theta_curve, self.x_curve, self.u_curve):
             curve.setData([], [])
 
+    @Slot(float)
+    def _set_plot_window(self, seconds):
+        self.visual_buffer.window_seconds = seconds
+        self._update_plots()
+
     def _update_plots(self):
         if self.shutdown_started:
             return
-        values = self.visual_buffer.snapshot(("Time", "theta", "x", "u"))
-        self.theta_curve.setData(values["Time"], values["theta"])
-        self.x_curve.setData(values["Time"], values["x"])
-        self.u_curve.setData(values["Time"], values["u"])
+        snapshot = self.visual_buffer.snapshot_if_changed(
+            ("Time", *self.plot_series), self._plot_revision
+        )
+        if snapshot is None:
+            return
+        self._plot_revision, values = snapshot
+        times = values["Time"]
+        width = self.visual_buffer.window_seconds
+        right = max(width, times[-1]) if times else width
+        for name, (plot, curve) in self.plot_series.items():
+            curve.setData(times, values[name])
+            plot.setXRange(right - width, right, padding=0)
 
     # =================================================
     # Shutdown
@@ -1326,6 +1300,8 @@ class MainWindow(QMainWindow):
         # -----------------------------------------
 
         self.plot_timer.stop()
+        for dialog in self.plot_windows.values():
+            dialog.close()
 
         # SerialWorker drena y cierra el registro antes de emitir finished.
 
