@@ -1031,13 +1031,17 @@ class MainWindow(QMainWindow):
 
         # =============================================
         # Entrada RUNNING
+        # MSG,RUNNING puede haber actualizado ya el estado visual.
+        # La primera DATA debe abrir el registro o confirmar la reanudación.
         # =============================================
 
         if (
-            previous_state
-            != SystemState.RUNNING
-            and new_state
-            == SystemState.RUNNING
+            new_state == SystemState.RUNNING
+            and (
+                previous_state != SystemState.RUNNING
+                or self.start_pending
+                or not self.logger.active
+            )
         ):
 
             self.start_pending = False
