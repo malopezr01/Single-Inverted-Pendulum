@@ -830,7 +830,7 @@ void Pendulum::sendTelemetryHeader()
      * la GUI actual continúe funcionando sin cambios.
      */
     Serial.println(
-        "HEADER,Time,theta,thetaDot,x,xDotObs,xDotXActual,u,state,mode");
+        "HEADER,Time,theta,thetaDot,x,xDotObs,xDotXActual,u,E,state,mode");
 }
 
 void Pendulum::sendTelemetryHeaderPeriodic()
@@ -885,6 +885,10 @@ void Pendulum::sendTelemetry()
 
         // u
         Serial.print(u, 4);
+        Serial.print(",");
+
+        // E
+        Serial.print(E, 4);
         Serial.print(",");
 
         // state
