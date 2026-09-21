@@ -45,6 +45,7 @@ enum class SystemState
     HOMING,
     READY,
     RUNNING,
+    STOPPING,
     FAULT
 };
 
@@ -60,7 +61,9 @@ enum class ControlMode
     NONE,
     LQR,
     LQR_FRICTION,
-    SWING_UP
+    SWING_UP,
+    FREE_FALL,
+    DAMPED_FALL
 };
 
 // ============================================================================
@@ -180,6 +183,7 @@ private:
     void updateStateMachine();
     void updateReadyState();
     void updateRunningState();
+    void updateStoppingState();
     void updateFaultState();
     void checkLimitSwitchSafety();
     void updateMeasurements();
@@ -187,6 +191,7 @@ private:
     void updateControl();
     float computeLQR();
     float computeSwingUp();
+    float computeDampingControl();
     float setAccelerationLQR(float a);
     float sign(float value);
     float saturate(float value, float limit);
@@ -224,6 +229,10 @@ private:
     static constexpr float KX_SWING = 7.0f;
     static constexpr float KV_SWING = 1.0f;
     static constexpr float K_ENERGY = 50.0f;
+    static constexpr float THETA_DAMP_ENTER = PI - (10.0f * PI / 180.0f);
+    static constexpr float THETA_DAMP_STOP= PI - (3.0f * PI / 180.0f);
+    static constexpr float THETADOT_DAMP_STOP = 0.5f;
+
     float thetaPreviousVelocity = 0.0f;
     uint32_t thetaVelocityTime = 0;
     float n = 0.6f;
@@ -238,6 +247,13 @@ private:
     float thetaDotSwingUp = 0.0f;
     float thetaDotSwingUpFiltered = 0.0f;
     float alpha = 0.8f;
+    int dampingDirection = 1;
+    uint32_t dampingStartTime = 0;
+    static constexpr uint32_t DAMP_KICK_TIME_MS = 80;
+    static constexpr uint32_t DAMP_RECOVERY_TIME_MS = 120;
+
+    static constexpr float DAMP_KICK_ACCEL = 3.0f;
+    static constexpr float DAMP_RECOVERY_ACCEL = 1.5f;
 
     // ========================================================================
     // Timing
@@ -245,6 +261,7 @@ private:
 
     // Variables
     uint64_t lastCycleTime = 0;
+    uint64_t lastStopTime = 0;
     float dt = 0.0f;
     float cuenta = 0.0f;
 

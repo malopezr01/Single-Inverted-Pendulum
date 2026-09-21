@@ -354,6 +354,7 @@ bool Pendulum::checkSerialCommand()
             command != 'H' &&
             command != 'R' &&
             command != 'S' &&
+            command != 'D' &&
             command != 'X')
         {
             return resume;
@@ -448,6 +449,20 @@ bool Pendulum::checkSerialCommand()
             break;
 
             // =========================================
+            // DAMPED STOP
+            // =========================================
+
+        case 'D':
+            if (systemState == SystemState::RUNNING)
+            {
+                lastStopTime = micros();
+                tmc.setSpeed(0);
+                systemState = SystemState::STOPPING;
+                controlMode = ControlMode::FREE_FALL;
+                resume = true;
+            }
+            break;
+            // =========================================
             // EMERGENCY STOP
             // =========================================
 
@@ -478,6 +493,9 @@ void Pendulum::updateStateMachine()
         break;
     case SystemState::RUNNING:
         updateRunningState();
+        break;
+    case SystemState::STOPPING:
+        updateStoppingState();
         break;
     case SystemState::FAULT:
         updateFaultState();
@@ -590,6 +608,45 @@ void Pendulum::updateRunningState()
     }
 }
 
+void Pendulum::updateStoppingState()
+{
+    uint64_t now_stop = micros();
+    dt = now_stop - lastStopTime;
+
+    if (dt >= 10000)
+    {
+        lastStopTime = now_stop;
+        updateMeasurements();
+
+        if (controlMode == ControlMode::FREE_FALL)
+        {
+            if (fabsf(x0) > THETA_DAMP_ENTER)
+            {
+                controlMode = ControlMode::DAMPED_FALL;
+                
+                dampingStartTime = millis();
+                dampingDirection = (thetaDotSwingUp >= 0.0f) ? 1 : -1;
+                Serial.println("EVENT,DAMPING_STARTED");
+            }
+        }
+        /*else if (controlMode == ControlMode::DAMPED_FALL)
+        {
+            if (fabsf(x0) > THETA_DAMP_STOP &&
+                fabsf(thetaDotSwingUp) < THETADOT_DAMP_STOP)
+            {
+                tmc.setSpeed(0);
+
+                controlMode = ControlMode::NONE;
+                resume = false;
+                systemState = SystemState::READY;
+
+                Serial.println("EVENT,DAMPED_STOP_COMPLETED");
+            }
+        }*/
+        updateControl();
+    }
+}
+
 void Pendulum::updateFaultState()
 {
     // FAULT latched.
@@ -598,7 +655,8 @@ void Pendulum::updateFaultState()
 
 void Pendulum::checkLimitSwitchSafety()
 {
-    if (systemState != SystemState::RUNNING)
+    if (systemState != SystemState::RUNNING && 
+    systemState != SystemState::STOPPING)
     {
         return;
     }
@@ -719,7 +777,11 @@ void Pendulum::updateControl()
     case ControlMode::SWING_UP:
         u = computeSwingUp();
         break;
+    case ControlMode::DAMPED_FALL:
+        u = computeDampingControl();
+        break;
     case ControlMode::NONE:
+    case ControlMode::FREE_FALL:
     default:
         u = 0.0f;
         break;
@@ -736,11 +798,11 @@ float Pendulum::computeSwingUp()
 {
 
     float swingAccel =
-    saturate(-K_ENERGY * (E - E0), SWING_UP_ACCEL);
+        saturate(-K_ENERGY * (E - E0), SWING_UP_ACCEL);
 
     float a = (singSwitch > 0)
-              ? +swingAccel
-              : -swingAccel;
+                  ? +swingAccel
+                  : -swingAccel;
 
     const float brakingDistance =
         (x3 * x3) / (2.0f * SWING_UP_ACCEL);
@@ -760,6 +822,60 @@ float Pendulum::computeSwingUp()
         tmc.setSpeed(0);
         return 0.0f;
     }
+
+    tmc.setSpeed(V_MAX * speedRatio);
+
+    if (a > 0.0f)
+        tmc.setRampMode(CW);
+    else
+        tmc.setRampMode(CCW);
+
+    tmc.setAcceleration(
+        fabsf(a * accelerationRatio));
+
+    return a;
+}
+
+float Pendulum::computeDampingControl()
+{
+    const uint32_t elapsed =
+        millis() - dampingStartTime;
+
+    float a = 0.0f;
+
+    // ---------------------------------------------------------
+    // Phase 1: damping kick
+    // ---------------------------------------------------------
+    if (elapsed < DAMP_KICK_TIME_MS)
+    {
+        a = dampingDirection * DAMP_KICK_ACCEL;
+    }
+
+    // ---------------------------------------------------------
+    // Phase 2: cart recovery
+    // ---------------------------------------------------------
+    else if (
+        elapsed <
+        DAMP_KICK_TIME_MS + DAMP_RECOVERY_TIME_MS)
+    {
+        a = -dampingDirection *
+            DAMP_RECOVERY_ACCEL;
+    }
+
+    // ---------------------------------------------------------
+    // Profile finished
+    // ---------------------------------------------------------
+    else
+    {
+        u = 0.0f;
+        tmc.setSpeed(0);
+        controlMode = ControlMode::NONE;
+        systemState = SystemState::READY;
+        resume = false;
+        return u;
+    }
+
+    a = saturate(a, DAMP_KICK_ACCEL);
 
     tmc.setSpeed(V_MAX * speedRatio);
 
@@ -846,11 +962,11 @@ void Pendulum::sendTelemetryHeaderPeriodic()
 
 void Pendulum::sendTelemetry()
 {
-    uint32_t now = millis();
+    uint32_t now_telemetry = millis();
 
-    if (now - lastTelemetry >= 30)
+    if (now_telemetry - lastTelemetry >= 30)
     {
-        lastTelemetry = now;
+        lastTelemetry = now_telemetry;
 
         /*
          * El orden de los valores debe coincidir exactamente con
