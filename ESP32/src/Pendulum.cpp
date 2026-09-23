@@ -550,7 +550,8 @@ void Pendulum::updateRunningState()
         return;
     }
 
-    uint64_t now = micros();
+    const uint32_t now = micros();
+    // Unsigned 32-bit subtraction preserves elapsed time across micros() rollover.
     dt = now - lastCycleTime;
 
     if (dt >= 10000)

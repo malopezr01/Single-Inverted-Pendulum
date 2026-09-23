@@ -240,8 +240,8 @@ private:
     // ========================================================================
 
     float cuenta = 0.0f;
-    float dt = 0.0f;
-    uint64_t lastCycleTime = 0;
+    uint32_t dt = 0; // Elapsed control time [us]
+    uint32_t lastCycleTime = 0;
 
     // ========================================================================
     // Motor conversion factors
