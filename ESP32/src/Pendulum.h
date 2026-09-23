@@ -170,8 +170,6 @@ private:
     void updateFaultState();
     void updateControl();
     float saturate(float value, float limit);
-    float sign(float value)
-
 
     ControlMode controlMode = ControlMode::NONE;
     SystemState systemState = SystemState::INIT;
