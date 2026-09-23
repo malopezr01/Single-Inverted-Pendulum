@@ -1,3 +1,5 @@
+// This file was originally written by a human and has been reorganized by an AI.
+
 #pragma once
 
 #include <Arduino.h>
@@ -25,7 +27,7 @@
 #define POS 0
 #define CW 1
 #define CCW 2
-#define STOP 3
+//#define STOP 3
 
 // ============================================================================
 // Mechanical configuration
@@ -59,8 +61,7 @@ enum class ControlMode
 {
     NONE,
     LQR,
-    LQR_FRICTION,
-    SWING_UP
+    SWING_UP = 2
 };
 
 // ============================================================================
@@ -82,55 +83,42 @@ private:
     // Dependencies
     // ========================================================================
 
-    FinalCarrera fc;
     Encoder encoder;
+    FinalCarrera fc;
     TMC tmc;
-
-    SystemState systemState = SystemState::INIT;
-    HomingState homingState = HomingState::OK;
-    ControlMode controlMode = ControlMode::NONE;
 
     // ========================================================================
     // Initialization
     // ========================================================================
 
-    // Functions
     void initializeHardware();
     void configureMotor();
-    bool performHoming();
     void initializePendulumReference();
-    void enterReadyState();
 
     // ========================================================================
     // Homing
     // ========================================================================
 
-    // Functions
+    bool performHoming();
     HomingState homingIzquierda();
     HomingState homingDerecha();
     HomingState homingCentro();
 
-    // Variables
-    // bool FC1State = false;
-    // bool FC2State = false;
-    uint64_t homingCycleTime = 0;
-    static constexpr uint32_t HOMING_TIMEOUT_MS = 20000; // ms
-    static constexpr long HOMING_TOLERANCE = 40;         // microsteps (~1 mm)
-    //static constexpr uint32_t HOMING_TARGET = 5000;
+    HomingState homingState = HomingState::OK;
     static constexpr long HOMING_TARGET = -6000;
+    static constexpr long HOMING_TOLERANCE = 40; // microsteps (~1 mm)
+    static constexpr uint32_t HOMING_TIMEOUT_MS = 20000;
+    uint64_t homingCycleTime = 0;
 
     // ========================================================================
     // Serial communication
     // ========================================================================
 
-    // Functions
-    bool checkSerialResume();
     bool checkSerialCommand();
     void sendTelemetryHeader();
     void sendTelemetryHeaderPeriodic();
     void sendTelemetry();
 
-    // Variables
     bool resume = false;
     uint32_t lastTelemetry = 0;
     uint32_t lastTelemetryHeader = 0;
@@ -139,125 +127,127 @@ private:
     // Measured system states
     // ========================================================================
 
-    // Variables
-    float x0 = PI;   // Pendulum angle [rad]
+    void updateMeasurements();
+
+    float x0 = PI; // Pendulum angle [rad]
     float x2 = 0.0f; // Cart position [m]
     float x3 = 0.0f; // Cart velocity [m/s]
-    float lastx3 = 0.0f;
-    float a_xActual = 0.0f;
-    int32_t xActual = 0;
     int32_t lastxActual = 0;
+    int32_t xActual = 0;
 
     // ========================================================================
     // State observer
     // ========================================================================
 
-    // Variables
-    float xhat[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    float xhat_next[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    void initializeObserver();
+    void updateObserver();
+
+    bool observerInitialized = false;
     const float Ad[4][4] = {
         {1.002280415304319f, 0.01000760022935386f, 0.0f, 0.0f},
         {0.4562563249884429f, 1.002280415304319f, 0.0f, 0.0f},
         {0.0f, 0.0f, 1.0f, 0.01f},
         {0.0f, 0.0f, 0.0f, 1.0f}};
     const float Bd[4] = {0.0002324582369336554f, 0.04650930937700743f, 0.00005f, 0.01f};
-    const float K[4] = {69.50536056155524f, 9.862435668785068f, -21.4997927630159f, -18.31987099561388f};
+    float eTheta = 0.0f;
+    float eX = 0.0f;
     const float Lobs[4][2] = {
         {0.8017105895712615f, 0.0f},
         {16.6469923450831f, 0.0f},
         {0.0f, 0.1860729471918576f},
         {0.0f, 1.017038197658804f}};
-    float eTheta = 0.0f;
-    float eX = 0.0f;
+    float xhat[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float xhat_next[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
     // ========================================================================
-    // Control
+    // Control / orchestration
     // ========================================================================
 
-    // Functions
-    void initializeObserver();
-    void initializeObserverLQR();
     void updateStateMachine();
+    void enterReadyState();
     void updateReadyState();
     void updateRunningState();
     void updateFaultState();
-    void checkLimitSwitchSafety();
-    void updateMeasurements();
-    void updateObserver();
     void updateControl();
-    float computeLQR();
-    float computeSwingUp();
-    float setAccelerationLQR(float a);
-    float setAccelerationSwingUp(float a);
-    float sign(float value);
     float saturate(float value, float limit);
 
-    // Variables
+    ControlMode controlMode = ControlMode::NONE;
+    SystemState systemState = SystemState::INIT;
     float u = 0.0f;
-    float uApplied = 0.0f;
-    float xMax = 0.15f;     // Soft cart limit [m]
-    float xMaxHard = 0.20f; // Hard cart limit [m]
+    static constexpr float V_MAX = 2.0f; // Shared cart speed limit [m/s]
+
+    // ========================================================================
+    // LQR control
+    // ========================================================================
+
+    float computeLQR();
+    float setAccelerationLQR(float a);
+
     static constexpr float A_MAX = 15.0f;
-    static constexpr float A_LIMIT = 5.0f; 
+    const float K[4] = {69.50536056155524f, 9.862435668785068f, -21.4997927630159f, -18.31987099561388f};
+
+    // ========================================================================
+    // Swing-up control
+    // ========================================================================
+
+    float computeSwingUp();
+    float setAccelerationSwingUp(float a);
+
     static constexpr float SWING_UP_ACCEL = 5.0f;
-    static constexpr float THETA_MAX = 10.0f * PI / 180.0f; // [rad]
-    static constexpr float V_MAX = 2.0f;                    // [m/s]
-    const float J = 0.0016095;
-    const float ml = 0.0074800;
-    const float g = 9.81;
+
+    // ========================================================================
+    // Swing-up control / energy
+    // ========================================================================
+
     float E = 0.0f;
     float E0 = 0.01f;
-    float newTheta = 0.0f;
-    float oldTheta = 0.0f;
-    float deltaTheta = 0.0f;
-    bool observerInitialized = false;
-    static constexpr float k = 80.0f;
+    const float g = 9.81;
+    const float J = 0.0016095;
+    static constexpr float K_ENERGY = 50.0f;
+    const float ml = 0.0074800;
+
+    // ========================================================================
+    // Swing-up control / switching
+    // ========================================================================
+
+    static constexpr float SWITCHING_THRESHOLD = 0.01f;
     static constexpr float THETA_LQR_ENTER = 8.0f * PI / 180.0f;
     static constexpr float THETA_LQR_EXIT = 15.0f * PI / 180.0f;
+    static constexpr float THETA_MAX = 10.0f * PI / 180.0f;
     static constexpr float THETADOT_LQR_ENTER = 5.0f;
-    static constexpr float SWING_UP_BOTTOM_THRESHOLD = 5.0f * PI / 180.0f;
-    static constexpr float SWING_UP_KICK_SPEED_THRESHOLD = 0.1f;
-    static constexpr float SWING_UP_START_SPEED = 1.0f; // rad/s
-    static constexpr uint32_t SWING_UP_KICK_MAX_DURATION_MS = 20;
-    static constexpr uint32_t THETADOT_SAMPLE_MS = 10;
-    static constexpr float SWITCHING_THRESHOLD = 0.01f;
-    static constexpr uint32_t SWITCHING_TOLERANCE = 400; // microsteps (~10 mm)
-    static constexpr float SWING_UP_KICK_ACCEL = 1.0f;
-    static constexpr float KX_SWING = 7.0f;
-    static constexpr float KV_SWING = 1.0f;
-    static constexpr float K_ENERGY = 50.0f;
-    float thetaPreviousVelocity = 0.0f;
-    uint32_t thetaVelocityTime = 0;
-    float n = 0.6f;
-    bool swingUpKickActive = false;
-    bool swingUpKickDone = false;
-    int32_t xTarget = 5000;
     int32_t singSwitch = 1;
-    int32_t OldSignSwitch = 1;
-    bool energySwitch = false;
-    bool positionReached = false;
-    uint32_t swingUpKickStart = 0;
+
+    // ========================================================================
+    // Swing-up control / angular velocity estimation
+    // ========================================================================
+
     float thetaDotSwingUp = 0.0f;
-    float thetaDotSwingUpFiltered = 0.0f;
-    float alpha = 0.8f;
-    bool lqrLimitRightActive = false;
-    bool lqrLimitLeftActive = false;
-    float xHysteresis = 0.01f;
+    float thetaPreviousVelocity = 0.0f;
+    static constexpr uint32_t THETADOT_SAMPLE_MS = 10;
+    uint32_t thetaVelocityTime = 0;
+
+    // ========================================================================
+    // Cart travel safety
+    // ========================================================================
+
+    void checkLimitSwitchSafety();
+
+    float xMax = 0.15f; // Soft cart limit [m]
 
     // ========================================================================
     // Timing
     // ========================================================================
 
-    // Variables
-    uint64_t lastCycleTime = 0;
-    float dt = 0.0f;
     float cuenta = 0.0f;
+    float dt = 0.0f;
+    uint64_t lastCycleTime = 0;
 
     // ========================================================================
     // Motor conversion factors
     // ========================================================================
 
+    // Expand the distance factor here to keep initialization independent of member order.
+    const float accelerationRatio = 0.01527f / (circunferenciaPolea / (motorSteps * motorMicrosteps));
     const float distanceRatio = circunferenciaPolea / (motorSteps * motorMicrosteps);
-    const float accelerationRatio = 0.01527f / distanceRatio;
     const float speedRatio = (16777216.0f / 12000000.0f) / distanceRatio;
 };

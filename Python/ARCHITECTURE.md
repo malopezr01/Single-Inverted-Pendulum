@@ -48,3 +48,9 @@ Los metadatos se crean al abrir y se actualizan tras vaciar el CSV cada 50 muest
 Al finalizar se abre un selector de señales del CSV guardado. Open selected plots crea gráficas matplotlib independientes con los datos completos, incluidas señales nuevas. Las curvas state/mode usan escalones; las demás son continuas. Los CSV antiguos siguen siendo legibles. Un cambio de HEADER cierra el segmento sin abrir automáticamente el visor en mitad del control. Los segmentos anteriores y cualquier CSV antiguo se pueden abrir desde Open saved CSV en la ventana principal.
 
 Prueba en hardware: añadir una señal solo en HEADER/DATA, ejecutar START → PAUSE → RESUME → PAUSE → FINISH; revisar la columna nueva, su gráfica y metadata. La frecuencia física del ESP32 no se cambia en esta fase.
+
+## Codificación del modo de control
+
+El firmware y la GUI usan `NONE = 0`, `LQR = 1` y `SWING_UP = 2`. La GUI también muestra `SWING_UP` al recibir el valor anterior `3`, para admitir el firmware previo. Hay que actualizar la GUI junto con el firmware nuevo: la GUI antigua interpretaba `2` como `LQR_FRICTION`.
+
+El parser, el registro y el visor CSV conservan los valores originales: los experimentos previos con swing-up siguen mostrando `3` en sus gráficas y los nuevos muestran `2`. No se recodifican automáticamente los archivos históricos, porque en versiones antiguas `2` identificaba `LQR_FRICTION`; sin conocer la versión de origen no se puede distinguir ese caso del swing-up actual.

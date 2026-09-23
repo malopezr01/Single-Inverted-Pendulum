@@ -516,9 +516,6 @@ void Pendulum::updateReadyState()
 
         lastCycleTime = micros();
 
-        swingUpKickDone = false;
-        swingUpKickActive = false;
-        swingUpKickStart = 0;
         thetaDotSwingUp = 0.0f;
         thetaPreviousVelocity = x0;
         thetaVelocityTime = millis();
@@ -531,7 +528,6 @@ void Pendulum::updateReadyState()
         else
         {
             controlMode = ControlMode::SWING_UP;
-            OldSignSwitch = singSwitch;
             Serial.println("MSG,Starting in SWING_UP mode");
         }
 
@@ -580,7 +576,6 @@ void Pendulum::updateRunningState()
             if (fabsf(x0) > THETA_LQR_EXIT)
             {
                 controlMode = ControlMode::SWING_UP;
-                OldSignSwitch = singSwitch;
                 Serial.println("EVENT,LQR_TO_SWING_UP");
             }
         }
@@ -654,8 +649,6 @@ void Pendulum::updateMeasurements()
     E = 0.5 * J * thetaDotSwingUp * thetaDotSwingUp + ml * g * (cosf(x0) - 1.0f);
     singSwitch = (thetaDotSwingUp * cosf(x0) > SWITCHING_THRESHOLD) ? 1 : (thetaDotSwingUp * cosf(x0) < -SWITCHING_THRESHOLD) ? -1
                                                                                                                               : singSwitch;
-    energySwitch = (singSwitch != OldSignSwitch) ? true : false;
-    positionReached = fabs(xActual - xTarget) < SWITCHING_TOLERANCE ? true : false;
     cuenta += dt * 1e-6f;
 }
 
