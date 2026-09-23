@@ -52,8 +52,7 @@ class ControlMode(IntEnum):
 
     NONE = 0
     LQR = 1
-    LQR_FRICTION = 2
-    SWING_UP = 3
+    SWING_UP = 2
 
 
 class MainWindow(QMainWindow):
@@ -1016,6 +1015,10 @@ class MainWindow(QMainWindow):
     def _mode_name(
         mode,
     ):
+
+        # Firmware anterior: SWING_UP se transmitía como 3.
+        if mode == 3:
+            return ControlMode.SWING_UP.name
 
         try:
 
