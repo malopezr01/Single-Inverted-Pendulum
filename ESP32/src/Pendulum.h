@@ -188,6 +188,7 @@ private:
     float computeLQR();
     float computeSwingUp();
     float setAccelerationLQR(float a);
+    float setAccelerationSwingUp(float a);
     float sign(float value);
     float saturate(float value, float limit);
 
@@ -197,6 +198,7 @@ private:
     float xMax = 0.15f;     // Soft cart limit [m]
     float xMaxHard = 0.20f; // Hard cart limit [m]
     static constexpr float A_MAX = 15.0f;
+    static constexpr float A_LIMIT = 5.0f; 
     static constexpr float SWING_UP_ACCEL = 5.0f;
     static constexpr float THETA_MAX = 10.0f * PI / 180.0f; // [rad]
     static constexpr float V_MAX = 2.0f;                    // [m/s]
@@ -238,6 +240,9 @@ private:
     float thetaDotSwingUp = 0.0f;
     float thetaDotSwingUpFiltered = 0.0f;
     float alpha = 0.8f;
+    bool lqrLimitRightActive = false;
+    bool lqrLimitLeftActive = false;
+    float xHysteresis = 0.01f;
 
     // ========================================================================
     // Timing
