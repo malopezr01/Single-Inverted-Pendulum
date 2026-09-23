@@ -714,10 +714,11 @@ void Pendulum::updateControl()
     switch (controlMode)
     {
     case ControlMode::LQR:
-        u = computeLQR();
+        u = setAccelerationLQR(computeLQR());
+
         break;
     case ControlMode::SWING_UP:
-        u = computeSwingUp();
+        u = setAccelerationSwingUp(computeSwingUp());
         break;
     case ControlMode::NONE:
     default:
@@ -728,19 +729,71 @@ void Pendulum::updateControl()
 
 float Pendulum::computeLQR()
 {
-    uApplied = setAccelerationLQR(-(K[0] * x0 + K[1] * xhat[1] + K[2] * x2 + K[3] * xhat[3]));
-    return uApplied;
+    u = -(K[0] * x0 + K[1] * xhat[1] + K[2] * x2 + K[3] * xhat[3]);
+    return u;
 }
 
 float Pendulum::computeSwingUp()
 {
+    float swingAccel = saturate(-K_ENERGY * (E - E0), SWING_UP_ACCEL);
 
-    float swingAccel =
-    saturate(-K_ENERGY * (E - E0), SWING_UP_ACCEL);
+    u = (singSwitch > 0)
+            ? +swingAccel
+            : -swingAccel;
+    return u;
+}
 
-    float a = (singSwitch > 0)
-              ? +swingAccel
-              : -swingAccel;
+float Pendulum::setAccelerationLQR(float a)
+{
+    if (a > A_MAX)
+        a = A_MAX;
+
+    if (a < -A_MAX)
+        a = -A_MAX;
+
+    const float brakingDistance =
+        (x3 * x3) / (2.0f * A_MAX);
+
+    bool mustBrakeRight = x3 > 0.0f &&
+        (x2 + brakingDistance >= xMax);
+
+    bool mustBrakeLeft = x3 < 0.0f &&
+        (x2 - brakingDistance <= -xMax);
+
+    if (mustBrakeRight || mustBrakeLeft)
+    {
+
+        tmc.setAcceleration(A_MAX * accelerationRatio);
+        tmc.setSpeed(0);
+        resume = false;
+        controlMode = ControlMode::NONE;
+        systemState = SystemState::READY;
+
+        Serial.println("EVENT,SOFT_LIMIT_ABORT");
+
+        return 0.0f;
+    }
+
+    tmc.setSpeed(V_MAX * speedRatio);
+
+    if (a > 0.0f)
+        tmc.setRampMode(CW);
+    else
+        tmc.setRampMode(CCW);
+
+    tmc.setAcceleration(
+        fabsf(a * accelerationRatio));
+
+    return a;
+}
+
+float Pendulum::setAccelerationSwingUp(float a)
+{
+    if (a > SWING_UP_ACCEL)
+        a = SWING_UP_ACCEL;
+
+    if (a < -SWING_UP_ACCEL)
+        a = -SWING_UP_ACCEL;
 
     const float brakingDistance =
         (x3 * x3) / (2.0f * SWING_UP_ACCEL);
@@ -774,46 +827,6 @@ float Pendulum::computeSwingUp()
     return a;
 }
 
-float Pendulum::setAccelerationLQR(float a)
-{
-    if (a > A_MAX)
-        a = A_MAX;
-
-    if (a < -A_MAX)
-        a = -A_MAX;
-
-    if (fabsf(x2) >= xMaxHard)
-    {
-        tmc.setSpeed(0);
-        systemState = SystemState::READY;
-        resume = false;
-        return 0.0f;
-    }
-
-    if (x3 > 0 &&
-        (x2 + 0.5f * x3 * x3 / A_MAX > xMax))
-    {
-        a = -A_MAX;
-    }
-    else if (x3 < 0 &&
-             (x2 - 0.5f * x3 * x3 / A_MAX < -xMax))
-    {
-        a = A_MAX;
-    }
-
-    // IMPORTANTE: swing-up puede haber dejado speed = 0
-    tmc.setSpeed(V_MAX * speedRatio);
-
-    if (a < 0)
-        tmc.setRampMode(CCW);
-    else
-        tmc.setRampMode(CW);
-
-    tmc.setAcceleration(
-        fabsf(a * accelerationRatio));
-
-    return a;
-}
 
 void Pendulum::sendTelemetryHeader()
 {
