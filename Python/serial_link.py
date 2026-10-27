@@ -1,3 +1,4 @@
+import math
 import threading
 from collections import deque
 
@@ -78,19 +79,32 @@ class SerialLink:
 
         return line or None
 
-    def send_command(self, command):
-        """
-        Protocolo PC -> ESP32:
-
-            H -> HOME
-            R -> START / RESUME
-            S -> STOP / PAUSE
-            X -> EMERGENCY STOP
-        """
+    @classmethod
+    def normalize_command(cls, command):
+        """Validate single-character commands or an F,id,C,epsilon frame."""
         command = command.strip().upper()
+        if command in cls.VALID_COMMANDS:
+            return command
+        fields = command.split(",")
+        if len(fields) == 4 and fields[0] == "F":
+            try:
+                request_id = int(fields[1])
+                c = float(fields[2])
+                epsilon = float(fields[3])
+            except ValueError as exc:
+                raise ValueError("Invalid F parameters") from exc
+            if not (0 <= request_id <= 2147483647):
+                raise ValueError("Invalid request id")
+            if not (math.isfinite(c) and 0.0 <= c <= 1.0):
+                raise ValueError("C out of range")
+            if not (math.isfinite(epsilon) and 0.05 <= epsilon <= 5.0):
+                raise ValueError("epsilon out of range")
+            return f"F,{request_id},{c:.6f},{epsilon:.6f}\\n"
+        raise ValueError(f"Comando Serial no válido: {command}")
 
-        if command not in self.VALID_COMMANDS:
-            raise ValueError(f"Comando Serial no válido: {command}")
+    def send_command(self, command):
+        """Write a validated command. F frames are newline-terminated."""
+        command = self.normalize_command(command)
 
         with self._serial_lock:
             if not self.is_open:
@@ -231,12 +245,20 @@ class SerialWorker(QObject):
             )
 
     def queue_command(self, command):
-        command = command.strip().upper()
-
-        if command not in SerialLink.VALID_COMMANDS:
+        try:
+            command = SerialLink.normalize_command(command)
+        except ValueError:
             return
 
         with self._command_lock:
+            if command.startswith("F,"):
+                # Only the most recent, not-yet-transmitted proposal matters.
+                self._command_queue = deque(
+                    old for old in self._command_queue if not old.startswith("F,")
+                )
+                self._command_queue.append(command)
+                return
+
             if command in {"H", "X"}:
                 self.session.submit("command", command)
             if command == "X":
@@ -247,7 +269,7 @@ class SerialWorker(QObject):
                 self._command_queue = deque(
                     item
                     for item in self._command_queue
-                    if item not in {"R", "H"}
+                    if item not in {"R", "H"} and not item.startswith("F,")
                 )
                 self._command_queue.appendleft("S")
 
