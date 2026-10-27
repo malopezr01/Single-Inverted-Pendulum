@@ -1,9 +1,12 @@
+import math
+
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QPushButton, QSizePolicy
 
 from gui import MainWindow as BaseMainWindow
 from gui import ControlMode, SystemState
+from optimization_bridge import OptimizationBridge
 
 
 class MainWindow(BaseMainWindow):
@@ -20,6 +23,14 @@ class MainWindow(BaseMainWindow):
         self.known_header = None
         self.fault_latched = False
         super().__init__(serial_worker, parent)
+        self.optimization_bridge = OptimizationBridge(self)
+        self.optimization_bridge.parameters_requested.connect(
+            self._optimization_parameters
+        )
+        self.optimization_bridge.notice.connect(
+            lambda message: self._append_console("OPT", message)
+        )
+        self._update_buttons()
 
     def _build_ui(self):
         super()._build_ui()
@@ -59,6 +70,60 @@ class MainWindow(BaseMainWindow):
         control_layout = self.start_button.parentWidget().layout()
         control_layout.addWidget(self.home_button, 0, 0)
 
+        self.optimization_button = QPushButton("OPTIMIZATION OFF")
+        self.optimization_button.setCheckable(True)
+        self.optimization_button.setMinimumHeight(45)
+        self.optimization_button.setMaximumHeight(50)
+        self.optimization_button.setFont(button_font)
+        self.optimization_button.setEnabled(False)
+        self.optimization_button.toggled.connect(self._optimization_toggled)
+        control_layout.addWidget(self.optimization_button, 2, 0, 1, 3)
+
+    @Slot(bool)
+    def _optimization_toggled(self, checked):
+        if not hasattr(self, "optimization_bridge"):
+            return
+        if checked:
+            if (
+                not self.connected
+                or self.current_state != SystemState.RUNNING
+                or self.fault_latched
+                or self.shutdown_started
+            ):
+                self.optimization_button.setChecked(False)
+                return
+            if not self.optimization_bridge.start():
+                self.optimization_button.setChecked(False)
+                return
+            self.optimization_button.setText("OPTIMIZATION ON (TCP :8765)")
+        else:
+            self.optimization_bridge.stop()
+            self.optimization_button.setText("OPTIMIZATION OFF")
+
+    @Slot(int, float, float)
+    def _optimization_parameters(self, request_id, c, epsilon):
+        bridge = self.optimization_bridge
+        if (
+            not self.optimization_button.isChecked()
+            or not self.connected
+            or self.current_state != SystemState.RUNNING
+            or self.current_mode != ControlMode.LQR
+            or self.fault_latched
+            or self.shutdown_started
+        ):
+            bridge.send({"type": "reject", "id": request_id, "reason": "not RUNNING/LQR"})
+            return
+        if not (
+            0 <= request_id <= 2147483647
+            and math.isfinite(c) and 0 <= c <= 1
+            and math.isfinite(epsilon) and 0.05 <= epsilon <= 5
+        ):
+            bridge.send({"type": "reject", "id": request_id, "reason": "parameters out of bounds"})
+            return
+        # Queued is NOT an ACK: optimizer must wait for firmware ACK,F,...
+        self.serial_worker.queue_command(f"F,{request_id},{c:.6f},{epsilon:.6f}")
+        bridge.send({"type": "queued", "id": request_id})
+
     @Slot(str)
     def handle_event(self, message):
         self.handle_message(f"EVENT: {message}")
@@ -97,6 +162,8 @@ class MainWindow(BaseMainWindow):
     @Slot(str)
     def handle_message(self, message):
         super().handle_message(message)
+        if hasattr(self, "optimization_bridge") and self.optimization_bridge.active:
+            self.optimization_bridge.publish_ack(message)
 
         # INIT es la evidencia de que el ESP32 se ha reiniciado. Sólo aquí
         # liberamos el enclavamiento local producido por EMERGENCY STOP.
@@ -176,6 +243,15 @@ class MainWindow(BaseMainWindow):
 
         self._update_buttons()
 
+        if (
+            hasattr(self, "optimization_bridge")
+            and self.optimization_button.isChecked()
+            and self.connected
+            and not self.fault_latched
+            and self.current_state == SystemState.RUNNING
+        ):
+            self.optimization_bridge.publish_telemetry(data)
+
     def _enter_fault_ui(self, reason):
         """Enclava toda la interfaz en FAULT hasta un nuevo INIT."""
         self.fault_latched = True
@@ -195,6 +271,18 @@ class MainWindow(BaseMainWindow):
 
     def _update_buttons(self):
         super()._update_buttons()
+
+        if hasattr(self, "optimization_button"):
+            can_optimize = (
+                self.connected
+                and self.current_state == SystemState.RUNNING
+                and not self.fault_latched
+                and not self.shutdown_started
+                and not self.finish_pending
+            )
+            if not can_optimize and self.optimization_button.isChecked():
+                self.optimization_button.setChecked(False)
+            self.optimization_button.setEnabled(can_optimize)
 
         if not hasattr(self, "home_button"):
             return
@@ -292,3 +380,8 @@ class MainWindow(BaseMainWindow):
 
         self._enter_fault_ui("EMERGENCY STOP")
 
+
+    def closeEvent(self, event):
+        if hasattr(self, "optimization_bridge"):
+            self.optimization_bridge.stop()
+        super().closeEvent(event)
