@@ -99,7 +99,7 @@ class SerialLink:
                 raise ValueError("C out of range")
             if not (math.isfinite(epsilon) and 0.05 <= epsilon <= 5.0):
                 raise ValueError("epsilon out of range")
-            return f"F,{request_id},{c:.6f},{epsilon:.6f}\\n"
+            return f"F,{request_id},{c:.6f},{epsilon:.6f}\n"
         raise ValueError(f"Comando Serial no válido: {command}")
 
     def send_command(self, command):
